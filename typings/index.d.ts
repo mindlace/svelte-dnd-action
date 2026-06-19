@@ -68,6 +68,29 @@ export interface Options<T extends Item = Item> {
      * Use cursor position instead of dragged element center for drop zone detection
      */
     useCursorForDetection?: boolean;
+    /**
+     * Opt-in (board a11y): called when Enter is pressed on a focused, NOT-grabbed
+     * card. When provided, the keyboard handler yields Enter to the app instead of
+     * grabbing (Space still grabs). When absent, Enter keeps the stock grab/drop
+     * behaviour. Additive: undefined ⇒ stock behaviour unchanged.
+     */
+    onActivate?: (itemId: string) => void;
+    /**
+     * Opt-in (board a11y): called at each grab-lifecycle step. When provided, the
+     * library suppresses its built-in fixed-string screen-reader announcements (the
+     * app owns the copy); when absent, the stock announcements fire. `autoAriaDisabled`
+     * stays the coarse off-switch. Additive: undefined ⇒ stock behaviour unchanged.
+     */
+    onAnnounce?: (event: KeyboardDndAnnounceEvent) => void;
+}
+
+export interface KeyboardDndAnnounceEvent {
+    type: "grab" | "move" | "drop" | "cancel";
+    itemId: string;
+    itemLabel: string;
+    zoneLabel: string;
+    index: number;
+    count: number;
 }
 
 export interface DndZoneAttributes<T> {
