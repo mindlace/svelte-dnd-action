@@ -17,6 +17,13 @@ let focusedDzLabel = "";
 let focusedItem;
 let focusedItemId;
 let focusedItemLabel = "";
+// At-rest (not-dragging) board-wide active card pointer. Drives the roving
+// tabindex: exactly one card per board (the zones sharing a type) is tabIndex 0,
+// the rest -1. Re-asserted on every configure() so the library — not a consumer
+// $effect — owns the tabindex and there's no thrash.
+let activeItemEl = null;
+// Captured on grab so Escape can restore the card to where it was picked up.
+let grabOrigin = null;
 const allDragTargets = new WeakSet();
 const elToKeyDownListeners = new WeakMap();
 const elToFocusListeners = new WeakMap();
@@ -72,7 +79,19 @@ function globalKeyDownHandler(e) {
     if (!isDragging) return;
     switch (e.key) {
         case "Escape": {
-            handleDrop();
+            // Cancel-to-origin: relocate the grabbed card back to where it was
+            // picked up, announce the cancel, then drop without a further consider
+            // string. If it never left its origin zone, just drop.
+            const autoAriaDisabled = dzToConfig.get(focusedDz).autoAriaDisabled;
+            if (grabOrigin && focusedDz !== grabOrigin.dz) {
+                relocateToZone(grabOrigin.dz, grabOrigin.index);
+            }
+            announce("cancel", autoAriaDisabled, () => `Stopped dragging item ${focusedItemLabel}`, {
+                index: grabOrigin ? grabOrigin.index : 0,
+                count: focusedDz ? dzToConfig.get(focusedDz).items.length : 0,
+                zoneLabel: focusedDz ? focusedDz.getAttribute("aria-label") || "" : ""
+            });
+            handleDrop(true, true);
             break;
         }
     }
@@ -104,48 +123,115 @@ function grabIsAlive() {
     return false;
 }
 
+/* ─── at-rest keyboard navigation + roving tabindex (board a11y) ─── */
+
+// The zones of a given type, ordered left-to-right then top-to-bottom by their
+// on-screen rect — this is the lane order the arrow keys navigate.
+function orderedZonesOfType(type) {
+    const set = typeToDropZones.get(type);
+    if (!set) return [];
+    return Array.from(set).sort((a, b) => {
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+        return ra.left - rb.left || ra.top - rb.top;
+    });
+}
+
+// One tab stop per board: activeEl gets tabIndex 0, every other card across the
+// type's zones gets -1.
+function setRovingTabindex(type, activeEl) {
+    for (const dz of orderedZonesOfType(type)) {
+        for (const child of dz.children) {
+            child.tabIndex = child === activeEl ? 0 : -1;
+        }
+    }
+}
+
+// Move at-rest focus to `el`, make it the board's single tab stop, and focus it.
+function focusCard(type, el) {
+    if (!el) return;
+    activeItemEl = el;
+    setRovingTabindex(type, el);
+    el.focus();
+}
+
+// Announcement seam (board a11y). When the active drag's config supplies an
+// `onAnnounce` callback, emit a structured event and SUPPRESS the built-in
+// fixed-string `alertToScreenReader` (the app owns the copy). When it's absent,
+// fall back to the stock string (additive — non-opted consumers unchanged).
+// `autoAriaDisabled` stays the coarse off-switch (no announcement either way).
+function announce(type, autoAriaDisabled, buildString, ctx) {
+    if (autoAriaDisabled) return;
+    const onAnnounce = focusedDz && dzToConfig.get(focusedDz) && dzToConfig.get(focusedDz).onAnnounce;
+    if (onAnnounce) {
+        onAnnounce({
+            type,
+            itemId: focusedItemId,
+            itemLabel: focusedItemLabel,
+            zoneLabel: ctx && ctx.zoneLabel !== undefined ? ctx.zoneLabel : focusedDzLabel,
+            index: ctx && ctx.index !== undefined ? ctx.index : 0,
+            count: ctx && ctx.count !== undefined ? ctx.count : 0
+        });
+        return;
+    }
+    alertToScreenReader(buildString());
+}
+
+// Splice the grabbed item out of its origin zone and insert it into `targetDz` at
+// `atIndex`, then dispatch the dual finalize (origin DROPPED_INTO_ANOTHER + target
+// DROPPED_INTO_ZONE). Shared by the focus-driven (Tab) and arrow-driven cross-lane
+// moves. Returns the announcement context for the caller to emit.
+function relocateToZone(targetDz, atIndex) {
+    focusedDzLabel = targetDz.getAttribute("aria-label") || "";
+    const {items: originItems} = dzToConfig.get(focusedDz);
+    const originItem = originItems.find(item => item[ITEM_ID_KEY] === focusedItemId);
+    const originIdx = originItems.indexOf(originItem);
+    const itemToMove = originItems.splice(originIdx, 1)[0];
+    const {items: targetItems} = dzToConfig.get(targetDz);
+    const clampedIdx = Math.max(0, Math.min(atIndex, targetItems.length));
+    targetItems.splice(clampedIdx, 0, itemToMove);
+    const dzFrom = focusedDz;
+    // Capture the moved id and re-point focusedDz BEFORE dispatching: a synchronous consumer
+    // handler may destroy either zone, and the dispatch must not observe half-updated state.
+    const movedItemId = focusedItemId;
+    focusedDz = targetDz;
+    dispatchFinalizeEvent(dzFrom, originItems, {trigger: TRIGGERS.DROPPED_INTO_ANOTHER, id: movedItemId, source: SOURCES.KEYBOARD});
+    // The origin's finalize may have torn the target zone down; don't dispatch into a dead zone.
+    if (dzToConfig.has(targetDz)) {
+        dispatchFinalizeEvent(targetDz, targetItems, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: movedItemId, source: SOURCES.KEYBOARD});
+    }
+    return {index: clampedIdx, count: targetItems.length, zoneLabel: focusedDzLabel};
+}
+
 function handleZoneFocus(e) {
     printDebug(() => "zone focus");
     if (!isDragging) return;
     const newlyFocusedDz = e.currentTarget;
     if (newlyFocusedDz === focusedDz) return;
 
+    // Upstream's liveness guard (#694): if a consumer re-render dropped the grabbed item
+    // out of its origin zone, drop rather than relocate a phantom.
     if (!grabIsAlive()) return;
 
-    focusedDzLabel = newlyFocusedDz.getAttribute("aria-label") || "";
-    const {items: originItems} = dzToConfig.get(focusedDz);
-    const originItem = originItems.find(item => item[ITEM_ID_KEY] === focusedItemId);
-    const originIdx = originItems.indexOf(originItem);
-    const itemToMove = originItems.splice(originIdx, 1)[0];
-    const {items: targetItems, autoAriaDisabled} = dzToConfig.get(newlyFocusedDz);
-    if (
+    const toEnd =
         newlyFocusedDz.getBoundingClientRect().top < focusedDz.getBoundingClientRect().top ||
-        newlyFocusedDz.getBoundingClientRect().left < focusedDz.getBoundingClientRect().left
-    ) {
-        targetItems.push(itemToMove);
-        if (!autoAriaDisabled) {
-            alertToScreenReader(`Moved item ${focusedItemLabel} to the end of the list ${focusedDzLabel}`);
-        }
-    } else {
-        targetItems.unshift(itemToMove);
-        if (!autoAriaDisabled) {
-            alertToScreenReader(`Moved item ${focusedItemLabel} to the beginning of the list ${focusedDzLabel}`);
-        }
-    }
-    const dzFrom = focusedDz;
-    const movedItemId = focusedItemId;
-    focusedDz = newlyFocusedDz;
-    dispatchFinalizeEvent(dzFrom, originItems, {trigger: TRIGGERS.DROPPED_INTO_ANOTHER, id: movedItemId, source: SOURCES.KEYBOARD});
-    if (dzToConfig.has(newlyFocusedDz)) {
-        dispatchFinalizeEvent(newlyFocusedDz, targetItems, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: movedItemId, source: SOURCES.KEYBOARD});
-    }
+        newlyFocusedDz.getBoundingClientRect().left < focusedDz.getBoundingClientRect().left;
+    const {items: targetItems, autoAriaDisabled} = dzToConfig.get(newlyFocusedDz);
+    const atIndex = toEnd ? targetItems.length : 0;
+    const ctx = relocateToZone(newlyFocusedDz, atIndex);
+    announce("move", autoAriaDisabled, () =>
+        toEnd
+            ? `Moved item ${focusedItemLabel} to the end of the list ${ctx.zoneLabel}`
+            : `Moved item ${focusedItemLabel} to the beginning of the list ${ctx.zoneLabel}`,
+        ctx
+    );
 }
 
 function triggerAllDzsUpdate() {
     dzToHandles.forEach(({update}, dz) => update(dzToConfig.get(dz)));
 }
 
-function handleDrop(dispatchConsider = true) {
+function handleDrop(dispatchConsider = true, suppressAnnounce = false) {
     if (!isDragging || !focusedDz) return;
     printDebug(() => "drop");
     const droppedDz = focusedDz;
@@ -154,8 +240,14 @@ function handleDrop(dispatchConsider = true) {
     const droppedItemType = draggedItemType;
     if (!droppedConfig) return;
 
-    if (!droppedConfig.autoAriaDisabled) {
-        alertToScreenReader(`Stopped dragging item ${focusedItemLabel}`);
+    if (!suppressAnnounce) {
+        const items = droppedConfig.items;
+        const idx = items.findIndex(item => item[ITEM_ID_KEY] === droppedItemId);
+        announce("drop", droppedConfig.autoAriaDisabled, () => `Stopped dragging item ${focusedItemLabel}`, {
+            index: idx < 0 ? 0 : idx,
+            count: items.length,
+            zoneLabel: droppedDz.getAttribute("aria-label") || ""
+        });
     }
     if (allDragTargets.has(document.activeElement)) {
         document.activeElement.blur();
@@ -169,6 +261,7 @@ function handleDrop(dispatchConsider = true) {
     focusedDz = null;
     focusedDzLabel = "";
     isDragging = false;
+    grabOrigin = null;
 
     if (dispatchConsider) {
         dispatchConsiderEvent(droppedDz, droppedConfig.items, {
@@ -199,7 +292,9 @@ export function dndzone(node, options) {
         dropFromOthersDisabled: false,
         dropTargetStyle: DEFAULT_DROP_TARGET_STYLE,
         dropTargetClasses: [],
-        autoAriaDisabled: false
+        autoAriaDisabled: false,
+        onActivate: undefined,
+        onAnnounce: undefined
     };
 
     function swap(arr, i, j) {
@@ -207,10 +302,62 @@ export function dndzone(node, options) {
         arr.splice(j, 1, arr.splice(i, 1, arr[j])[0]);
     }
 
+    // At-rest: move focus to the adjacent lane (left/right) at the same row index,
+    // clamped to that lane's card count. Returns true if it navigated.
+    function navigateToAdjacentLane(currentCard, dir) {
+        const zones = orderedZonesOfType(config.type);
+        const myZoneIdx = zones.indexOf(node);
+        const targetZone = zones[myZoneIdx + dir];
+        if (!targetZone || targetZone.children.length === 0) return false;
+        const row = Array.from(node.children).indexOf(currentCard);
+        const targetRow = Math.max(0, Math.min(row, targetZone.children.length - 1));
+        focusCard(config.type, targetZone.children[targetRow]);
+        return true;
+    }
+
+    // Grab-mode: relocate the grabbed card to the adjacent lane (left/right) at the
+    // same row index, then re-focus it and announce the move.
+    function relocateToAdjacentLane(dir) {
+        const zones = orderedZonesOfType(config.type);
+        const myZoneIdx = zones.indexOf(focusedDz);
+        const targetZone = zones[myZoneIdx + dir];
+        if (!targetZone || dzToConfig.get(targetZone).dropFromOthersDisabled) return;
+        const fromItems = dzToConfig.get(focusedDz).items;
+        const row = fromItems.findIndex(item => item[ITEM_ID_KEY] === focusedItemId);
+        const ctx = relocateToZone(targetZone, row < 0 ? 0 : row);
+        announce("move", config.autoAriaDisabled, () =>
+            `Moved item ${focusedItemLabel} to the list ${ctx.zoneLabel}`,
+            ctx
+        );
+    }
+
     function handleKeyDown(e) {
         printDebug(() => ["handling key down", e.key]);
         switch (e.key) {
-            case "Enter":
+            case "Enter": {
+                // we don't want to affect nested input elements or clickable elements
+                if ((e.target.disabled !== undefined || e.target.href || e.target.isContentEditable) && !allDragTargets.has(e.target)) {
+                    return;
+                }
+                // Split activation: when the consumer opts in with onActivate and the
+                // card is not grabbed, Enter yields to the app (e.g. open editor) and
+                // does NOT grab. Otherwise Enter keeps the stock grab/drop behavior.
+                if (!isDragging && config.onActivate) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setCurrentFocusedItem(e.currentTarget);
+                    config.onActivate(focusedItemId);
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                if (isDragging) {
+                    handleDrop();
+                } else {
+                    handleDragStart(e);
+                }
+                break;
+            }
             case " ": {
                 // we don't want to affect nested input elements or clickable elements
                 if ((e.target.disabled !== undefined || e.target.href || e.target.isContentEditable) && !allDragTargets.has(e.target)) {
@@ -219,51 +366,89 @@ export function dndzone(node, options) {
                 e.preventDefault(); // preventing scrolling on spacebar
                 e.stopPropagation();
                 if (isDragging) {
-                    // TODO - should this trigger a drop? only here or in general (as in when hitting space or enter outside of any zone)?
                     handleDrop();
                 } else {
-                    // drag start
                     handleDragStart(e);
                 }
                 break;
             }
-            case "ArrowDown":
-            case "ArrowRight": {
-                if (!isDragging) return;
+            case "ArrowDown": {
                 e.preventDefault(); // prevent scrolling
                 e.stopPropagation();
-                const {items} = dzToConfig.get(node);
-                const children = Array.from(node.children);
-                const idx = children.indexOf(e.currentTarget);
-                printDebug(() => ["arrow down", idx]);
-                if (idx < children.length - 1) {
-                    if (!config.autoAriaDisabled) {
-                        alertToScreenReader(`Moved item ${focusedItemLabel} to position ${idx + 2} in the list ${focusedDzLabel}`);
-                    }
-                    swap(items, idx, idx + 1);
-                    dispatchFinalizeEvent(node, items, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: focusedItemId, source: SOURCES.KEYBOARD});
+                if (!isDragging) {
+                    // at-rest: focus the next card in this lane (clamp at end)
+                    const children = Array.from(node.children);
+                    const idx = children.indexOf(e.currentTarget);
+                    if (idx < children.length - 1) focusCard(config.type, children[idx + 1]);
+                    break;
                 }
+                arrowReorder(1);
                 break;
             }
-            case "ArrowUp":
-            case "ArrowLeft": {
-                if (!isDragging) return;
-                e.preventDefault(); // prevent scrolling
+            case "ArrowUp": {
+                e.preventDefault();
                 e.stopPropagation();
-                const {items} = dzToConfig.get(node);
-                const children = Array.from(node.children);
-                const idx = children.indexOf(e.currentTarget);
-                printDebug(() => ["arrow up", idx]);
-                if (idx > 0) {
-                    if (!config.autoAriaDisabled) {
-                        alertToScreenReader(`Moved item ${focusedItemLabel} to position ${idx} in the list ${focusedDzLabel}`);
-                    }
-                    swap(items, idx, idx - 1);
-                    dispatchFinalizeEvent(node, items, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: focusedItemId, source: SOURCES.KEYBOARD});
+                if (!isDragging) {
+                    const children = Array.from(node.children);
+                    const idx = children.indexOf(e.currentTarget);
+                    if (idx > 0) focusCard(config.type, children[idx - 1]);
+                    break;
                 }
+                arrowReorder(-1);
+                break;
+            }
+            case "ArrowRight": {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!isDragging) {
+                    navigateToAdjacentLane(e.currentTarget, 1);
+                    break;
+                }
+                relocateToAdjacentLane(1);
+                break;
+            }
+            case "ArrowLeft": {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!isDragging) {
+                    navigateToAdjacentLane(e.currentTarget, -1);
+                    break;
+                }
+                relocateToAdjacentLane(-1);
+                break;
+            }
+            case "Home": {
+                if (isDragging) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (node.children.length > 0) focusCard(config.type, node.children[0]);
+                break;
+            }
+            case "End": {
+                if (isDragging) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (node.children.length > 0) focusCard(config.type, node.children[node.children.length - 1]);
                 break;
             }
         }
+    }
+
+    // Grab-mode within-lane reorder by one slot (dir: -1 up, +1 down). Preserves the
+    // original swap + single DROPPED_INTO_ZONE finalize behavior.
+    function arrowReorder(dir) {
+        const {items} = dzToConfig.get(focusedDz);
+        const children = Array.from(focusedDz.children);
+        const idx = children.findIndex(c => allDragTargets.has(c) && c === focusedItem);
+        const curIdx = idx < 0 ? items.findIndex(item => item[ITEM_ID_KEY] === focusedItemId) : idx;
+        const nextIdx = curIdx + dir;
+        if (nextIdx < 0 || nextIdx > children.length - 1) return;
+        announce("move", config.autoAriaDisabled, () =>
+            `Moved item ${focusedItemLabel} to position ${nextIdx + 1} in the list ${focusedDzLabel}`,
+            {index: nextIdx, count: items.length, zoneLabel: focusedDzLabel}
+        );
+        swap(items, curIdx, nextIdx);
+        dispatchFinalizeEvent(focusedDz, items, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: focusedItemId, source: SOURCES.KEYBOARD});
     }
     function handleDragStart(e) {
         printDebug(() => "drag start");
@@ -272,19 +457,23 @@ export function dndzone(node, options) {
         focusedDzLabel = node.getAttribute("aria-label") || "";
         draggedItemType = config.type;
         isDragging = true;
+        const {items: startItems} = dzToConfig.get(node);
+        const startIdx = startItems.findIndex(item => item[ITEM_ID_KEY] === focusedItemId);
+        // Capture grab origin so Escape can restore the card to where it was lifted.
+        grabOrigin = {dz: node, index: startIdx < 0 ? 0 : startIdx, itemId: focusedItemId};
         const dropTargets = Array.from(typeToDropZones.get(config.type)).filter(dz => dz === focusedDz || !dzToConfig.get(dz).dropFromOthersDisabled);
         styleActiveDropZones(
             dropTargets,
             dz => dzToConfig.get(dz).dropTargetStyle,
             dz => dzToConfig.get(dz).dropTargetClasses
         );
-        if (!config.autoAriaDisabled) {
+        announce("grab", config.autoAriaDisabled, () => {
             let msg = `Started dragging item ${focusedItemLabel}. Use the arrow keys to move it within its list ${focusedDzLabel}`;
             if (dropTargets.length > 1) {
                 msg += `, or tab to another list in order to move the item into it`;
             }
-            alertToScreenReader(msg);
-        }
+            return msg;
+        }, {index: grabOrigin.index, count: startItems.length, zoneLabel: focusedDzLabel});
         dispatchConsiderEvent(node, dzToConfig.get(node).items, {trigger: TRIGGERS.DRAG_STARTED, id: focusedItemId, source: SOURCES.KEYBOARD});
         triggerAllDzsUpdate();
     }
@@ -315,7 +504,9 @@ export function dndzone(node, options) {
         dropFromOthersDisabled = false,
         dropTargetStyle = DEFAULT_DROP_TARGET_STYLE,
         dropTargetClasses = [],
-        autoAriaDisabled = false
+        autoAriaDisabled = false,
+        onActivate = undefined,
+        onAnnounce = undefined
     }) {
         config.items = [...items];
         config.dragDisabled = dragDisabled;
@@ -325,6 +516,8 @@ export function dndzone(node, options) {
         config.dropTargetStyle = dropTargetStyle;
         config.dropTargetClasses = dropTargetClasses;
         config.autoAriaDisabled = autoAriaDisabled;
+        config.onActivate = onActivate;
+        config.onAnnounce = onAnnounce;
         if (config.type && newType !== config.type) {
             unregisterDropZone(node, config.type);
         }
@@ -354,7 +547,12 @@ export function dndzone(node, options) {
         for (let i = 0; i < node.children.length; i++) {
             const draggableEl = node.children[i];
             allDragTargets.add(draggableEl);
-            draggableEl.tabIndex = isDragging ? -1 : config.zoneItemTabIndex;
+            // Roving tabindex: default every card to -1 here; the board's single
+            // active tab stop (tabIndex 0) is asserted by setRovingTabindex below
+            // (at rest) or set on the grabbed card (while dragging). This yields
+            // exactly one tab stop per board and is re-asserted on every configure(),
+            // so no consumer $effect needs to fight tabindex thrash.
+            draggableEl.tabIndex = -1;
             if (!autoAriaDisabled) {
                 draggableEl.setAttribute("role", "listitem");
             }
@@ -371,6 +569,7 @@ export function dndzone(node, options) {
                 // if it is a nested dropzone, it was re-rendered and we need to refresh our pointer
                 focusedItem = draggableEl;
                 focusedItem.tabIndex = config.zoneItemTabIndex;
+                activeItemEl = draggableEl;
                 // without this the element loses focus if it moves backwards in the list
                 draggableEl.focus();
             }
@@ -379,6 +578,21 @@ export function dndzone(node, options) {
             // Nested actions are configured before their parent action. Refresh only
             // after focusedItem points at the replacement so nested zones stay untabbable.
             refreshActiveDragTabIndices();
+        }
+
+        if (!isDragging) {
+            // Re-assert the board's single tab stop. If the tracked active card is
+            // still in the DOM (within a zone of this type), keep it; otherwise fall
+            // back to the first card of the first zone in rect order.
+            const zones = orderedZonesOfType(config.type);
+            const activeStillPresent = activeItemEl && zones.some(dz => dz.contains(activeItemEl));
+            let active = activeStillPresent ? activeItemEl : null;
+            if (!active) {
+                const firstZoneWithCards = zones.find(dz => dz.children.length > 0);
+                active = firstZoneWithCards ? firstZoneWithCards.children[0] : null;
+            }
+            activeItemEl = active;
+            if (active) setRovingTabindex(config.type, active);
         }
     }
     configure(options);
