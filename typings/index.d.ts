@@ -134,6 +134,10 @@ export interface DndEventInfo {
     trigger: TRIGGERS; // the type of dnd event that took place
     id: string;
     source: SOURCES; // the type of interaction that the user used to perform the dnd operation
+    // True on keyboard finalize events dispatched while a grab is still active (a
+    // mid-grab arrow step), false/absent on the terminal drop. Lets consumers that
+    // hold an optimistic working copy keep it authoritative across arrow steps.
+    grabActive?: boolean;
 }
 
 export type DndEvent<T = Item> = {
