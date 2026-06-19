@@ -200,8 +200,15 @@ function announce(type, autoAriaDisabled, buildString, ctx) {
 function relocateToZone(targetDz, atIndex) {
     focusedDzLabel = targetDz.getAttribute("aria-label") || "";
     const {items: originItems} = dzToConfig.get(focusedDz);
-    const originItem = originItems.find(item => item[ITEM_ID_KEY] === focusedItemId);
-    const originIdx = originItems.indexOf(originItem);
+    const originIdx = originItems.findIndex(item => item[ITEM_ID_KEY] === focusedItemId);
+    // Defensive: if the grabbed item is no longer in its origin zone's items (an
+    // intervening consumer re-render under load can transiently desync the bound items
+    // from focusedDz), DON'T splice — `splice(-1, 1)` would remove the wrong element and
+    // insert `undefined` into the target, vanishing the card from both zones. Abort the
+    // relocate as a no-op; the next keydown (or the drop) operates on settled state.
+    if (originIdx < 0) {
+        return {index: 0, count: dzToConfig.get(targetDz).items.length, zoneLabel: focusedDzLabel};
+    }
     const itemToMove = originItems.splice(originIdx, 1)[0];
     const {items: targetItems} = dzToConfig.get(targetDz);
     const clampedIdx = Math.max(0, Math.min(atIndex, targetItems.length));
@@ -211,10 +218,14 @@ function relocateToZone(targetDz, atIndex) {
     // handler may destroy either zone, and the dispatch must not observe half-updated state.
     const movedItemId = focusedItemId;
     focusedDz = targetDz;
-    dispatchFinalizeEvent(dzFrom, originItems, {trigger: TRIGGERS.DROPPED_INTO_ANOTHER, id: movedItemId, source: SOURCES.KEYBOARD});
+    // grabActive flags these as mid-grab step finalizes (the keyboard session is
+    // still live — a subsequent arrow/drop will follow), distinct from a terminal
+    // pointer drop. Consumers that keep an optimistic working copy use it to avoid
+    // tearing that copy down (re-seeding from stale source) between arrow steps.
+    dispatchFinalizeEvent(dzFrom, originItems, {trigger: TRIGGERS.DROPPED_INTO_ANOTHER, id: movedItemId, source: SOURCES.KEYBOARD, grabActive: isDragging});
     // The origin's finalize may have torn the target zone down; don't dispatch into a dead zone.
     if (dzToConfig.has(targetDz)) {
-        dispatchFinalizeEvent(targetDz, targetItems, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: movedItemId, source: SOURCES.KEYBOARD});
+        dispatchFinalizeEvent(targetDz, targetItems, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: movedItemId, source: SOURCES.KEYBOARD, grabActive: isDragging});
     }
     return {index: clampedIdx, count: targetItems.length, zoneLabel: focusedDzLabel};
 }
@@ -468,7 +479,9 @@ export function dndzone(node, options) {
             {index: nextIdx, count: items.length, zoneLabel: focusedDzLabel}
         );
         swap(items, curIdx, nextIdx);
-        dispatchFinalizeEvent(focusedDz, items, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: focusedItemId, source: SOURCES.KEYBOARD});
+        // grabActive: this within-lane reorder is a mid-grab step (Space/Escape will
+        // follow to end the grab), not a terminal drop — see relocateToZone.
+        dispatchFinalizeEvent(focusedDz, items, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: isDragging});
     }
     function handleDragStart(e) {
         printDebug(() => "drag start");
