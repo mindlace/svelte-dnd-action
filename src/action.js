@@ -80,6 +80,8 @@ function validateOptions(options) {
         useCursorForDetection,
         delayTouchStart,
         dropAnimationDisabled,
+        onActivate,
+        onAnnounce,
         ...rest
     } = options;
     /*eslint-enable*/
