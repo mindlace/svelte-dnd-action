@@ -82,6 +82,12 @@ function globalKeyDownHandler(e) {
             // Cancel-to-origin: relocate the grabbed card back to where it was
             // picked up, announce the cancel, then drop without a further consider
             // string. If it never left its origin zone, just drop.
+            // Re-sync focusedDz to the zone that actually holds the grabbed item —
+            // an intervening committed move + re-render can leave the module's
+            // focusedDz pointer stale, which would make relocateToZone splice from
+            // the wrong (empty) origin and silently no-op.
+            const liveDz = draggedItemType ? zoneHoldingItem(draggedItemType, focusedItemId) : null;
+            if (liveDz) focusedDz = liveDz;
             const autoAriaDisabled = dzToConfig.get(focusedDz).autoAriaDisabled;
             if (grabOrigin && focusedDz !== grabOrigin.dz) {
                 relocateToZone(grabOrigin.dz, grabOrigin.index);
@@ -135,6 +141,16 @@ function orderedZonesOfType(type) {
         const rb = b.getBoundingClientRect();
         return ra.left - rb.left || ra.top - rb.top;
     });
+}
+
+// The zone of `type` whose items currently include `itemId` (or null). Used to
+// re-sync the stale focusedDz pointer after an intervening re-render.
+function zoneHoldingItem(type, itemId) {
+    for (const dz of orderedZonesOfType(type)) {
+        const cfg = dzToConfig.get(dz);
+        if (cfg && cfg.items.some(item => item[ITEM_ID_KEY] === itemId)) return dz;
+    }
+    return null;
 }
 
 // One tab stop per board: activeEl gets tabIndex 0, every other card across the
@@ -319,6 +335,10 @@ export function dndzone(node, options) {
     // same row index, then re-focus it and announce the move.
     function relocateToAdjacentLane(dir) {
         const zones = orderedZonesOfType(config.type);
+        // Re-sync to the zone that actually holds the grabbed item (an intervening
+        // committed move + re-render can leave focusedDz stale).
+        const liveDz = zoneHoldingItem(config.type, focusedItemId);
+        if (liveDz) focusedDz = liveDz;
         const myZoneIdx = zones.indexOf(focusedDz);
         const targetZone = zones[myZoneIdx + dir];
         if (!targetZone || dzToConfig.get(targetZone).dropFromOthersDisabled) return;
