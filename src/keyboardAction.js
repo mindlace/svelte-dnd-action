@@ -11,9 +11,10 @@ const DEFAULT_DROP_TARGET_STYLE = {
 };
 
 let isDragging = false;
-// Tentative-until-drop: set by any mid-grab arrow/Tab step, cleared at the drop. It tells
-// handleDrop whether there is anything to commit — a grab that never moved (or that Escape
-// restored) writes nothing at all.
+// Tentative-until-drop: set by any mid-grab arrow/Tab step (including Escape's restore
+// relocate), cleared at the drop. It tells handleDrop whether the grab moved at all — a grab
+// that never moved writes nothing. Escape's own zero-write behavior comes from handleDrop's
+// `commit: false`, not from this flag: `pendingMove` is still true after a restore.
 let pendingMove = false;
 let draggedItemType;
 let focusedDz;
