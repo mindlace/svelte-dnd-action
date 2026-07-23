@@ -253,7 +253,11 @@ function handleDrop(dispatchConsider = true, suppressAnnounce = false, commit = 
     // one and only commit. Two events when the card changed zones — the origin zone settles
     // first (DROPPED_INTO_ANOTHER, no move payload), then the destination (DROPPED_INTO_ZONE,
     // which is the one carrying the move). That order is the one consumers already rely on.
-    // `commit: false` (Escape) writes nothing; so does a grab that never moved.
+    // What this fork guarantees: no finalize at all when `commit` is false (Escape), and none
+    // when the grab never stepped (`pendingMove` still false). It does NOT guarantee a
+    // net-zero grab is write-free: a ROUND-TRIP (e.g. ArrowRight then ArrowLeft home) sets
+    // `pendingMove` and DOES finalize. Suppressing that no-op write is the consumer's job —
+    // it can compare the finalized order against its own source.
     if (commit && pendingMove && focusedDz && dzToConfig.has(focusedDz)) {
         const originDz = grabOrigin && grabOrigin.dz !== focusedDz ? grabOrigin.dz : null;
         if (originDz && dzToConfig.has(originDz)) {
