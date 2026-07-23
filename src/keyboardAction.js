@@ -11,6 +11,10 @@ const DEFAULT_DROP_TARGET_STYLE = {
 };
 
 let isDragging = false;
+// Tentative-until-drop: set by any mid-grab arrow/Tab step, cleared at the drop. It tells
+// handleDrop whether there is anything to commit — a grab that never moved (or that Escape
+// restored) writes nothing at all.
+let pendingMove = false;
 let draggedItemType;
 let focusedDz;
 let focusedDzLabel = "";
@@ -96,7 +100,9 @@ function globalKeyDownHandler(e) {
                 count: focusedDz ? dzToConfig.get(focusedDz).items.length : 0,
                 zoneLabel: focusedDz ? focusedDz.getAttribute("aria-label") || "" : ""
             });
-            handleDrop(true, true);
+            // The restore above moved the card home via tentative considers — there is nothing
+            // to commit, and nothing to compensate for. `commit: false` (#535).
+            handleDrop(true, true, false);
             break;
         }
     }
@@ -175,8 +181,8 @@ function announce(type, autoAriaDisabled, buildString, ctx) {
 }
 
 // Splice the grabbed item out of its origin zone and insert it into `targetDz` at
-// `atIndex`, then dispatch the dual finalize (origin DROPPED_INTO_ANOTHER + target
-// DROPPED_INTO_ZONE). Shared by the focus-driven (Tab) and arrow-driven cross-lane
+// `atIndex`, then dispatch the dual consider (origin DRAGGED_LEFT + target
+// DRAGGED_ENTERED). Shared by the focus-driven (Tab) and arrow-driven cross-lane
 // moves. Returns the announcement context for the caller to emit.
 function relocateToZone(targetDz, atIndex) {
     focusedDzLabel = targetDz.getAttribute("aria-label") || "";
@@ -195,12 +201,13 @@ function relocateToZone(targetDz, atIndex) {
     const clampedIdx = Math.max(0, Math.min(atIndex, targetItems.length));
     targetItems.splice(clampedIdx, 0, itemToMove);
     const dzFrom = focusedDz;
-    // grabActive flags these as mid-grab step finalizes (the keyboard session is
-    // still live — a subsequent arrow/drop will follow), distinct from a terminal
-    // pointer drop. Consumers that keep an optimistic working copy use it to avoid
-    // tearing that copy down (re-seeding from stale source) between arrow steps.
-    dispatchFinalizeEvent(dzFrom, originItems, {trigger: TRIGGERS.DROPPED_INTO_ANOTHER, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: isDragging});
-    dispatchFinalizeEvent(targetDz, targetItems, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: isDragging});
+    // TENTATIVE-UNTIL-DROP (#535): while the grab is live, a step is a *consider*, not a
+    // finalize. The consumer moves the card in its working copy and commits nothing; the
+    // single finalize is dispatched by handleDrop. `grabActive` stays on the info object so
+    // consumers can tell a keyboard grab's tentative frames from a pointer drag's.
+    dispatchConsiderEvent(dzFrom, originItems, {trigger: TRIGGERS.DRAGGED_LEFT, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: true});
+    dispatchConsiderEvent(targetDz, targetItems, {trigger: TRIGGERS.DRAGGED_ENTERED, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: true});
+    pendingMove = true;
     focusedDz = targetDz;
     return {index: clampedIdx, count: targetItems.length, zoneLabel: focusedDzLabel};
 }
@@ -229,7 +236,7 @@ function triggerAllDzsUpdate() {
     dzToHandles.forEach(({update}, dz) => update(dzToConfig.get(dz)));
 }
 
-function handleDrop(dispatchConsider = true, suppressAnnounce = false) {
+function handleDrop(dispatchConsider = true, suppressAnnounce = false, commit = true) {
     printDebug(() => "drop");
     if (!suppressAnnounce) {
         const autoAriaDisabled = dzToConfig.get(focusedDz).autoAriaDisabled;
@@ -241,6 +248,19 @@ function handleDrop(dispatchConsider = true, suppressAnnounce = false) {
             zoneLabel: focusedDz.getAttribute("aria-label") || ""
         });
     }
+    // TENTATIVE-UNTIL-DROP (#535): the grab's steps only dispatched considers, so THIS is the
+    // one and only commit. Two events when the card changed zones — the origin zone settles
+    // first (DROPPED_INTO_ANOTHER, no move payload), then the destination (DROPPED_INTO_ZONE,
+    // which is the one carrying the move). That order is the one consumers already rely on.
+    // `commit: false` (Escape) writes nothing; so does a grab that never moved.
+    if (commit && pendingMove && focusedDz && dzToConfig.has(focusedDz)) {
+        const originDz = grabOrigin && grabOrigin.dz !== focusedDz ? grabOrigin.dz : null;
+        if (originDz && dzToConfig.has(originDz)) {
+            dispatchFinalizeEvent(originDz, dzToConfig.get(originDz).items, {trigger: TRIGGERS.DROPPED_INTO_ANOTHER, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: false});
+        }
+        dispatchFinalizeEvent(focusedDz, dzToConfig.get(focusedDz).items, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: false});
+    }
+    pendingMove = false;
     if (allDragTargets.has(document.activeElement)) {
         document.activeElement.blur();
     }
@@ -423,8 +443,8 @@ export function dndzone(node, options) {
         }
     }
 
-    // Grab-mode within-lane reorder by one slot (dir: -1 up, +1 down). Preserves the
-    // original swap + single DROPPED_INTO_ZONE finalize behavior.
+    // Grab-mode within-lane reorder by one slot (dir: -1 up, +1 down). Swaps in place and
+    // reports the step as a tentative consider; the drop is what commits.
     function arrowReorder(dir) {
         const {items} = dzToConfig.get(focusedDz);
         const children = Array.from(focusedDz.children);
@@ -437,9 +457,12 @@ export function dndzone(node, options) {
             {index: nextIdx, count: items.length, zoneLabel: focusedDzLabel}
         );
         swap(items, curIdx, nextIdx);
-        // grabActive: this within-lane reorder is a mid-grab step (Space/Escape will
-        // follow to end the grab), not a terminal drop — see relocateToZone.
-        dispatchFinalizeEvent(focusedDz, items, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: isDragging});
+        // TENTATIVE-UNTIL-DROP (#535): a within-lane step is a consider too. Making only the
+        // cross-lane steps tentative would not work — a within-lane finalize carries the
+        // destination zone's items and the grabbed card's id, so it would commit the pending
+        // cross-lane position mid-gesture, which is exactly what #535 is about.
+        dispatchConsiderEvent(focusedDz, items, {trigger: TRIGGERS.DRAGGED_OVER_INDEX, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: true});
+        pendingMove = true;
     }
     function handleDragStart(e) {
         printDebug(() => "drag start");
@@ -448,6 +471,7 @@ export function dndzone(node, options) {
         focusedDzLabel = node.getAttribute("aria-label") || "";
         draggedItemType = config.type;
         isDragging = true;
+        pendingMove = false;
         const {items: startItems} = dzToConfig.get(node);
         const startIdx = startItems.findIndex(item => item[ITEM_ID_KEY] === focusedItemId);
         // Capture grab origin so Escape can restore the card to where it was lifted.

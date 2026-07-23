@@ -134,9 +134,10 @@ export interface DndEventInfo {
     trigger: TRIGGERS; // the type of dnd event that took place
     id: string;
     source: SOURCES; // the type of interaction that the user used to perform the dnd operation
-    // True on keyboard finalize events dispatched while a grab is still active (a
-    // mid-grab arrow step), false/absent on the terminal drop. Lets consumers that
-    // hold an optimistic working copy keep it authoritative across arrow steps.
+    // True on KEYBOARD events dispatched while a grab is still live: the tentative
+    // per-step considers a grab emits before its terminal drop. False/absent on the
+    // single finalize the drop dispatches (and on every pointer event). Consumers use
+    // it to tell a grab's tentative frames from a committed placement.
     grabActive?: boolean;
 }
 
