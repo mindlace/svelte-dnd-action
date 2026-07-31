@@ -89,16 +89,18 @@ export interface DndZoneAttributes<T> {
  */
 export declare function alertToScreenReader(txt: string): void;
 
+// Every key receives the same context - `announce` in keyboardAction.js assembles it
+// uniformly - so any message can be worded positionally. Only dragStarted has an extra.
 export interface AriaStrings {
-    dragStarted?: (ctx: {itemLabel: string; zoneLabel: string; canMoveBetweenZones: boolean}) => string;
+    dragStarted?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number; canMoveBetweenZones: boolean}) => string;
     movedToPosition?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
     movedToZoneEnd?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
     movedToZoneStart?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
     /** Cross-lane arrow move: the card keeps its row, so the list it landed in is the news. */
     movedToZone?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
-    dropped?: (ctx: {itemLabel: string}) => string;
+    dropped?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
     /** Escape. Separate from `dropped` so a cancel can be worded differently from a commit. */
-    cancelled?: (ctx: {itemLabel: string}) => string;
+    cancelled?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
     zoneActiveInstruction?: string;
     zoneDragDisabledInstruction?: string;
 }

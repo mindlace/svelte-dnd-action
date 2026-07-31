@@ -190,7 +190,9 @@ function announce(key, autoAriaDisabled, ctx) {
         itemLabel: focusedItemLabel,
         zoneLabel: zoneLabel !== undefined ? zoneLabel : focusedDzLabel,
         position: (index !== undefined ? index : 0) + 1,
-        count: 0,
+        // No `count` stand-in: every callsite passes one and the string table's types promise
+        // it, so a default here would only let a callsite that forgot announce "3 of 0" —
+        // plausible and wrong — instead of an obviously-broken "3 of undefined".
         // key-specific extras (ex: dragStarted's canMoveBetweenZones) pass straight through
         ...rest
     });

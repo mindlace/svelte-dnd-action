@@ -262,5 +262,39 @@ describe("keyboardAction", () => {
             window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
             expect(alertText()).to.equal("Cancelled Card 0");
         });
+
+        // The seat and the zone size reach EVERY message, not just the move ones - which is what
+        // lets a consumer word a grab, a drop or a cancel positionally. The grabbed card is the
+        // middle of three on purpose: in a single-item zone a hardcoded position of 1 and a
+        // stand-in count would both pass.
+        it("gives the grab and the drop the item's seat and the zone's size", () => {
+            const seen = [];
+            setAriaStrings({
+                dragStarted: ctx => `grab:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`,
+                dropped: ctx => `drop:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`
+            });
+            const {
+                children: [, second]
+            } = createLabelledZone([{id: "a"}, {id: "b"}, {id: "c"}], "To do");
+
+            grab(second);
+            seen.push(alertText());
+            second.dispatchEvent(new KeyboardEvent("keydown", {key: " ", bubbles: true, cancelable: true}));
+            seen.push(alertText());
+
+            expect(seen).to.deep.equal(["grab:To do:2:3", "drop:To do:2:3"]);
+        });
+
+        it("gives the cancel the seat the card is returned to", () => {
+            setAriaStrings({cancelled: ctx => `cancel:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`});
+            const {
+                children: [, second]
+            } = createLabelledZone([{id: "a"}, {id: "b"}, {id: "c"}], "To do");
+
+            grab(second);
+            window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+
+            expect(alertText()).to.equal("cancel:To do:2:3");
+        });
     });
 });
