@@ -20,15 +20,18 @@ describe("keyboardAction tentative-until-drop", () => {
 
     // Records every consider/finalize seen on the given zones, tagged with the zone
     // so we can assert both the event kind and where it landed.
+    // `detail.items` is the library's live internal array, and arrowReorder swaps it in
+    // place — so every step must be COPIED at dispatch time. Storing the reference makes
+    // each recorded step alias the same array and report only the final state.
     function track(named) {
         const considers = [];
         const finalizes = [];
         Object.entries(named).forEach(([name, zone]) => {
             zone.addEventListener("consider", e =>
-                considers.push({zone: name, trigger: e.detail.info.trigger, grabActive: e.detail.info.grabActive, items: e.detail.items})
+                considers.push({zone: name, trigger: e.detail.info.trigger, grabActive: e.detail.info.grabActive, items: [...e.detail.items]})
             );
             zone.addEventListener("finalize", e =>
-                finalizes.push({zone: name, trigger: e.detail.info.trigger, grabActive: e.detail.info.grabActive, items: e.detail.items})
+                finalizes.push({zone: name, trigger: e.detail.info.trigger, grabActive: e.detail.info.grabActive, items: [...e.detail.items]})
             );
         });
         return {considers, finalizes};
@@ -198,5 +201,45 @@ describe("keyboardAction tentative-until-drop", () => {
         expect(finalizes[0].trigger).to.equal(TRIGGERS.DROPPED_INTO_ZONE);
         expect(finalizes[0].grabActive).to.equal(false);
         expect(ids(finalizes[0].items), "with the original order").to.deep.equal(["a", "b", "c"]);
+    });
+
+    // The consumer the tentative model exists to allow: one that ignores the mid-grab
+    // considers entirely and renders only what the drop commits. Its DOM therefore never
+    // moves during the grab. arrowReorder must not read the card's position out of that
+    // stale DOM — doing so made the second step swap the card straight back, so the card
+    // oscillated between two slots and could never reach the end of the lane.
+    it("keeps stepping in one direction when the consumer never writes back mid-grab", () => {
+        const {zone, children} = createZone([{id: "a"}, {id: "b"}, {id: "c"}]);
+        const [item] = children;
+        const {considers, finalizes} = track({zone});
+
+        grab(item);
+        key(item, "ArrowDown");
+        key(item, "ArrowDown");
+
+        const steps = midGrab(considers);
+        expect(steps, "two steps, two considers").to.have.length(2);
+        expect(ids(steps[0].items), "first step moves the card down one slot").to.deep.equal(["b", "a", "c"]);
+        expect(ids(steps[1].items), "second step keeps going rather than swapping back").to.deep.equal(["b", "c", "a"]);
+
+        key(item, " ");
+
+        expect(finalizes, "one commit at the drop").to.have.length(1);
+        expect(ids(finalizes[0].items), "carrying both steps").to.deep.equal(["b", "c", "a"]);
+    });
+
+    it("stops at the end of the lane when the consumer never writes back mid-grab", () => {
+        const {zone, children} = createZone([{id: "a"}, {id: "b"}, {id: "c"}]);
+        const [item] = children;
+        const {considers} = track({zone});
+
+        grab(item);
+        key(item, "ArrowDown");
+        key(item, "ArrowDown");
+        key(item, "ArrowDown");
+
+        const steps = midGrab(considers);
+        expect(steps, "the third press is out of bounds and emits nothing").to.have.length(2);
+        expect(ids(steps[1].items), "the card rests at the end of the lane").to.deep.equal(["b", "c", "a"]);
     });
 });

@@ -504,11 +504,17 @@ export function dndzone(node, options) {
     // reports the step as a tentative consider; the drop is what commits.
     function arrowReorder(dir) {
         const {items} = dzToConfig.get(focusedDz);
-        const children = Array.from(focusedDz.children);
-        const idx = children.findIndex(c => allDragTargets.has(c) && c === focusedItem);
-        const curIdx = idx < 0 ? items.findIndex(item => item[ITEM_ID_KEY] === focusedItemId) : idx;
+        // Derive the current index from `items`, NOT from the DOM position of focusedItem.
+        // Upstream reads the DOM here, which is sound for upstream because every arrow step
+        // finalizes: the consumer must honour it, so the DOM is re-rendered before the next
+        // keypress. Our steps are tentative considers (#535), and a consumer is entitled to
+        // ignore them and render only on the drop — so mid-grab the DOM can be one or more
+        // steps behind while `items` (which we swap in place, and which configure() replaces
+        // wholesale on write-back) is correct either way. Reading the DOM here made a second
+        // arrow press in the same direction swap the card straight back to where it came from.
+        const curIdx = items.findIndex(item => item[ITEM_ID_KEY] === focusedItemId);
         const nextIdx = curIdx + dir;
-        if (nextIdx < 0 || nextIdx > children.length - 1) return;
+        if (curIdx < 0 || nextIdx < 0 || nextIdx > items.length - 1) return;
         announce("movedToPosition", config.autoAriaDisabled, {index: nextIdx, count: items.length, zoneLabel: focusedDzLabel});
         swap(items, curIdx, nextIdx);
         // TENTATIVE-UNTIL-DROP (#535): a within-lane step is a consider too. Making only the
