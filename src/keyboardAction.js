@@ -23,9 +23,10 @@ let focusedItem;
 let focusedItemId;
 let focusedItemLabel = "";
 // At-rest (not-dragging) board-wide active card pointer. Drives the roving
-// tabindex: exactly one card per board (the zones sharing a type) is tabIndex 0,
-// the rest -1. Re-asserted on every configure() so the library — not a consumer
-// $effect — owns the tabindex and there's no thrash.
+// tabindex: exactly one card per board (the zones sharing a type) gets its zone's
+// configured zoneItemTabIndex (default 0), the rest -1. Re-asserted on every
+// configure() so the library — not a consumer $effect — owns the tabindex and
+// there's no thrash.
 let activeItemEl = null;
 // Captured on grab so Escape can restore the card to where it was picked up.
 let grabOrigin = null;
@@ -93,6 +94,14 @@ function globalKeyDownHandler(e) {
             // the wrong (empty) origin and silently no-op.
             const liveDz = draggedItemType ? zoneHoldingItem(draggedItemType, focusedItemId) : null;
             if (liveDz) focusedDz = liveDz;
+            // The card is in no zone at all: there is no move left to restore. The silence
+            // that follows is deliberate, not an oversight — with no move left to cancel,
+            // no announcement is made. End the grab the way a cancel does — `commit: false`,
+            // no string.
+            if (!grabIsLive()) {
+                handleDrop(true, true, false);
+                break;
+            }
             const autoAriaDisabled = dzToConfig.get(focusedDz).autoAriaDisabled;
             if (grabOrigin && focusedDz !== grabOrigin.dz) {
                 relocateToZone(grabOrigin.dz, grabOrigin.index);
@@ -128,9 +137,16 @@ function refreshActiveDragTabIndices() {
     });
 }
 
-function grabIsAlive() {
+// Is the grabbed item still in the zone focusedDz points at? Pure — callers that want
+// upstream's "it's gone, end the grab" policy use grabIsAlive below; callers that need a
+// different ending (ex: Escape, which must not commit) branch on this directly.
+function grabIsLive() {
     const focusedConfig = dzToConfig.get(focusedDz);
-    if (focusedConfig?.items.some(item => item[ITEM_ID_KEY] === focusedItemId)) return true;
+    return !!focusedConfig?.items.some(item => item[ITEM_ID_KEY] === focusedItemId);
+}
+
+function grabIsAlive() {
+    if (grabIsLive()) return true;
     printDebug(() => "dragged item is gone, dropping");
     handleDrop();
     return false;
@@ -160,12 +176,16 @@ function zoneHoldingItem(type, itemId) {
     return null;
 }
 
-// One tab stop per board: activeEl gets tabIndex 0, every other card across the
-// type's zones gets -1.
+// One tab stop per board: activeEl gets its zone's configured zoneItemTabIndex, every
+// other card across the type's zones gets -1. Reading the index per zone rather than
+// from the calling zone keeps upstream's option meaningful when zones of one type are
+// configured differently.
 function setRovingTabindex(type, activeEl) {
     for (const dz of orderedZonesOfType(type)) {
+        const cfg = dzToConfig.get(dz);
+        const activeTabIndex = cfg ? cfg.zoneItemTabIndex : 0;
         for (const child of dz.children) {
-            child.tabIndex = child === activeEl ? 0 : -1;
+            child.tabIndex = child === activeEl ? activeTabIndex : -1;
         }
     }
 }
@@ -206,14 +226,6 @@ function relocateToZone(targetDz, atIndex) {
     focusedDzLabel = targetDz.getAttribute("aria-label") || "";
     const {items: originItems} = dzToConfig.get(focusedDz);
     const originIdx = originItems.findIndex(item => item[ITEM_ID_KEY] === focusedItemId);
-    // Defensive: if the grabbed item is no longer in its origin zone's items (an
-    // intervening consumer re-render under load can transiently desync the bound items
-    // from focusedDz), DON'T splice — `splice(-1, 1)` would remove the wrong element and
-    // insert `undefined` into the target, vanishing the card from both zones. Abort the
-    // relocate as a no-op; the next keydown (or the drop) operates on settled state.
-    if (originIdx < 0) {
-        return {index: 0, count: dzToConfig.get(targetDz).items.length, zoneLabel: focusedDzLabel};
-    }
     const itemToMove = originItems.splice(originIdx, 1)[0];
     const {items: targetItems} = dzToConfig.get(targetDz);
     const clampedIdx = Math.max(0, Math.min(atIndex, targetItems.length));
@@ -227,17 +239,11 @@ function relocateToZone(targetDz, atIndex) {
     focusedDz = targetDz;
     // TENTATIVE-UNTIL-DROP (#535): while the grab is live, a step is a *consider*, not a
     // finalize. The consumer moves the card in its working copy and commits nothing; the
-    // single finalize is dispatched by handleDrop. `grabActive` stays on the info object so
-    // consumers can tell a keyboard grab's tentative frames from a pointer drag's.
-    dispatchConsiderEvent(dzFrom, originItems, {trigger: TRIGGERS.DRAGGED_LEFT, id: movedItemId, source: SOURCES.KEYBOARD, grabActive: true});
+    // single finalize is dispatched by handleDrop.
+    dispatchConsiderEvent(dzFrom, originItems, {trigger: TRIGGERS.DRAGGED_LEFT, id: movedItemId, source: SOURCES.KEYBOARD});
     // The origin's consider may have torn the target zone down; don't dispatch into a dead zone.
     if (dzToConfig.has(targetDz)) {
-        dispatchConsiderEvent(targetDz, targetItems, {
-            trigger: TRIGGERS.DRAGGED_ENTERED,
-            id: movedItemId,
-            source: SOURCES.KEYBOARD,
-            grabActive: true
-        });
+        dispatchConsiderEvent(targetDz, targetItems, {trigger: TRIGGERS.DRAGGED_ENTERED, id: movedItemId, source: SOURCES.KEYBOARD});
     }
     return {index: clampedIdx, count: targetItems.length, zoneLabel: focusedDzLabel};
 }
@@ -249,7 +255,10 @@ function handleZoneFocus(e) {
     if (newlyFocusedDz === focusedDz) return;
 
     // Upstream's liveness guard (#694): if a consumer re-render dropped the grabbed item
-    // out of its origin zone, drop rather than relocate a phantom.
+    // out of its origin zone, drop rather than relocate a phantom. Deliberately no
+    // zoneHoldingItem() re-sync here (unlike Escape and relocateToAdjacentLane below) —
+    // this is upstream's path and keeps upstream's policy as-is, so a Tab-to-zone may end
+    // a grab that Escape or an arrow key would have repaired.
     if (!grabIsAlive()) return;
 
     const toEnd =
@@ -316,8 +325,7 @@ function handleDrop(dispatchConsider = true, suppressAnnounce = false, commit = 
             dispatchFinalizeEvent(originDz, dzToConfig.get(originDz).items, {
                 trigger: TRIGGERS.DROPPED_INTO_ANOTHER,
                 id: droppedItemId,
-                source: SOURCES.KEYBOARD,
-                grabActive: false
+                source: SOURCES.KEYBOARD
             });
         }
         // The origin's finalize may have torn the destination down; don't dispatch into a dead zone.
@@ -325,8 +333,7 @@ function handleDrop(dispatchConsider = true, suppressAnnounce = false, commit = 
             dispatchFinalizeEvent(droppedDz, dzToConfig.get(droppedDz).items, {
                 trigger: TRIGGERS.DROPPED_INTO_ZONE,
                 id: droppedItemId,
-                source: SOURCES.KEYBOARD,
-                grabActive: false
+                source: SOURCES.KEYBOARD
             });
         }
     }
@@ -390,12 +397,20 @@ export function dndzone(node, options) {
         // committed move + re-render can leave focusedDz stale).
         const liveDz = zoneHoldingItem(config.type, focusedItemId);
         if (liveDz) focusedDz = liveDz;
+        // Re-sync repairs a stale pointer; this catches the case it cannot — the card is
+        // in no zone at all. Upstream's policy for that is to end the grab (#694), via
+        // grabIsAlive's default handleDrop(commit: true) — the same policy handleZoneFocus
+        // uses above, so an arrow relocate onto a vanished card commits its pending step
+        // just like a Tab does. Escape is the one deliberate exception: a cancel must not
+        // commit, so it branches on the bare grabIsLive() instead and calls
+        // handleDrop(true, true, false).
+        if (!grabIsAlive()) return;
         const myZoneIdx = zones.indexOf(focusedDz);
         const targetZone = zones[myZoneIdx + dir];
         if (!targetZone || dzToConfig.get(targetZone).dropFromOthersDisabled) return;
         const fromItems = dzToConfig.get(focusedDz).items;
         const row = fromItems.findIndex(item => item[ITEM_ID_KEY] === focusedItemId);
-        const ctx = relocateToZone(targetZone, row < 0 ? 0 : row);
+        const ctx = relocateToZone(targetZone, row);
         announce("movedToZone", config.autoAriaDisabled, ctx);
     }
 
@@ -526,8 +541,7 @@ export function dndzone(node, options) {
         dispatchConsiderEvent(focusedDz, items, {
             trigger: TRIGGERS.DRAGGED_OVER_INDEX,
             id: focusedItemId,
-            source: SOURCES.KEYBOARD,
-            grabActive: true
+            source: SOURCES.KEYBOARD
         });
         pendingMove = true;
     }
@@ -626,11 +640,11 @@ export function dndzone(node, options) {
         for (let i = 0; i < node.children.length; i++) {
             const draggableEl = node.children[i];
             allDragTargets.add(draggableEl);
-            // Roving tabindex: default every card to -1 here; the board's single
-            // active tab stop (tabIndex 0) is asserted by setRovingTabindex below
-            // (at rest) or set on the grabbed card (while dragging). This yields
-            // exactly one tab stop per board and is re-asserted on every configure(),
-            // so no consumer $effect needs to fight tabindex thrash.
+            // Roving tabindex: default every card to -1 here; the board's single active
+            // tab stop (its zone's configured zoneItemTabIndex, default 0) is asserted by
+            // setRovingTabindex below (at rest) or set on the grabbed card (while dragging).
+            // This yields exactly one tab stop per board and is re-asserted on every
+            // configure(), so no consumer $effect needs to fight tabindex thrash.
             draggableEl.tabIndex = -1;
             if (!autoAriaDisabled) {
                 draggableEl.setAttribute("role", "listitem");

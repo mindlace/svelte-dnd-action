@@ -98,6 +98,19 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
 
             expect(tabIndices()).to.deep.equal([[0, -1], []]);
         });
+
+        it("gives the active card the configured zoneItemTabIndex, not a hardcoded 0", () => {
+            const {
+                children: [first, second]
+            } = createZone([{id: "a"}, {id: "b"}, {id: "c"}], {zoneItemTabIndex: 3});
+
+            expect(tabIndices(), "the active card takes the configured index").to.deep.equal([[3, -1, -1]]);
+
+            key(first, "ArrowDown");
+
+            expect(tabIndices(), "and keeps it as the tab stop moves").to.deep.equal([[-1, 3, -1]]);
+            expect(document.activeElement, "focus follows the tab stop").to.equal(second);
+        });
     });
 
     describe("at-rest arrow navigation", () => {
