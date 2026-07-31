@@ -24,12 +24,8 @@ describe("keyboardAction tentative-until-drop", () => {
         const considers = [];
         const finalizes = [];
         Object.entries(named).forEach(([name, zone]) => {
-            zone.addEventListener("consider", e =>
-                considers.push({zone: name, trigger: e.detail.info.trigger, grabActive: e.detail.info.grabActive, items: e.detail.items})
-            );
-            zone.addEventListener("finalize", e =>
-                finalizes.push({zone: name, trigger: e.detail.info.trigger, grabActive: e.detail.info.grabActive, items: e.detail.items})
-            );
+            zone.addEventListener("consider", e => considers.push({zone: name, trigger: e.detail.info.trigger, items: e.detail.items}));
+            zone.addEventListener("finalize", e => finalizes.push({zone: name, trigger: e.detail.info.trigger, items: e.detail.items}));
         });
         return {considers, finalizes};
     }
@@ -73,7 +69,6 @@ describe("keyboardAction tentative-until-drop", () => {
         const steps = midGrab(considers);
         expect(steps, "the arrow step should be a single consider").to.have.length(1);
         expect(steps[0].trigger).to.equal(TRIGGERS.DRAGGED_OVER_INDEX);
-        expect(steps[0].grabActive, "mid-grab considers are flagged grabActive").to.equal(true);
         expect(ids(steps[0].items), "the consider carries the tentative order").to.deep.equal(["b", "a", "c"]);
         expect(finalizes, "nothing may be committed mid-grab").to.be.empty;
     });
@@ -94,10 +89,6 @@ describe("keyboardAction tentative-until-drop", () => {
             ["A", TRIGGERS.DRAGGED_LEFT],
             ["B", TRIGGERS.DRAGGED_ENTERED]
         ]);
-        expect(
-            steps.map(s => s.grabActive),
-            "both halves of the relocate are flagged grabActive"
-        ).to.deep.equal([true, true]);
         expect(ids(steps[0].items), "the origin consider drops the card").to.deep.equal(["b"]);
         expect(ids(steps[1].items), "the destination consider receives it").to.deep.equal(["a", "c"]);
         expect(finalizes, "nothing may be committed mid-grab").to.be.empty;
@@ -121,10 +112,6 @@ describe("keyboardAction tentative-until-drop", () => {
             ["A", TRIGGERS.DROPPED_INTO_ANOTHER],
             ["B", TRIGGERS.DROPPED_INTO_ZONE]
         ]);
-        expect(
-            finalizes.map(f => f.grabActive),
-            "the commit is not part of a live grab"
-        ).to.deep.equal([false, false]);
         expect(ids(finalizes[0].items)).to.deep.equal(["b"]);
         expect(ids(finalizes[1].items)).to.deep.equal(["a", "c"]);
     });
@@ -144,7 +131,6 @@ describe("keyboardAction tentative-until-drop", () => {
 
         expect(finalizes, "a same-zone drop commits once").to.have.length(1);
         expect(finalizes[0].trigger).to.equal(TRIGGERS.DROPPED_INTO_ZONE);
-        expect(finalizes[0].grabActive).to.equal(false);
         expect(ids(finalizes[0].items)).to.deep.equal(["b", "a", "c"]);
     });
 
@@ -196,7 +182,6 @@ describe("keyboardAction tentative-until-drop", () => {
 
         expect(finalizes, "the round trip still commits — the consumer must dedupe it").to.have.length(1);
         expect(finalizes[0].trigger).to.equal(TRIGGERS.DROPPED_INTO_ZONE);
-        expect(finalizes[0].grabActive).to.equal(false);
         expect(ids(finalizes[0].items), "with the original order").to.deep.equal(["a", "b", "c"]);
     });
 });

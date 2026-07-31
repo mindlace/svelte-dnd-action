@@ -230,17 +230,11 @@ function relocateToZone(targetDz, atIndex) {
     focusedDz = targetDz;
     // TENTATIVE-UNTIL-DROP (#535): while the grab is live, a step is a *consider*, not a
     // finalize. The consumer moves the card in its working copy and commits nothing; the
-    // single finalize is dispatched by handleDrop. `grabActive` stays on the info object so
-    // consumers can tell a keyboard grab's tentative frames from a pointer drag's.
-    dispatchConsiderEvent(dzFrom, originItems, {trigger: TRIGGERS.DRAGGED_LEFT, id: movedItemId, source: SOURCES.KEYBOARD, grabActive: true});
+    // single finalize is dispatched by handleDrop.
+    dispatchConsiderEvent(dzFrom, originItems, {trigger: TRIGGERS.DRAGGED_LEFT, id: movedItemId, source: SOURCES.KEYBOARD});
     // The origin's consider may have torn the target zone down; don't dispatch into a dead zone.
     if (dzToConfig.has(targetDz)) {
-        dispatchConsiderEvent(targetDz, targetItems, {
-            trigger: TRIGGERS.DRAGGED_ENTERED,
-            id: movedItemId,
-            source: SOURCES.KEYBOARD,
-            grabActive: true
-        });
+        dispatchConsiderEvent(targetDz, targetItems, {trigger: TRIGGERS.DRAGGED_ENTERED, id: movedItemId, source: SOURCES.KEYBOARD});
     }
     return {index: clampedIdx, count: targetItems.length, zoneLabel: focusedDzLabel};
 }
@@ -319,8 +313,7 @@ function handleDrop(dispatchConsider = true, suppressAnnounce = false, commit = 
             dispatchFinalizeEvent(originDz, dzToConfig.get(originDz).items, {
                 trigger: TRIGGERS.DROPPED_INTO_ANOTHER,
                 id: droppedItemId,
-                source: SOURCES.KEYBOARD,
-                grabActive: false
+                source: SOURCES.KEYBOARD
             });
         }
         // The origin's finalize may have torn the destination down; don't dispatch into a dead zone.
@@ -328,8 +321,7 @@ function handleDrop(dispatchConsider = true, suppressAnnounce = false, commit = 
             dispatchFinalizeEvent(droppedDz, dzToConfig.get(droppedDz).items, {
                 trigger: TRIGGERS.DROPPED_INTO_ZONE,
                 id: droppedItemId,
-                source: SOURCES.KEYBOARD,
-                grabActive: false
+                source: SOURCES.KEYBOARD
             });
         }
     }
@@ -526,8 +518,7 @@ export function dndzone(node, options) {
         dispatchConsiderEvent(focusedDz, items, {
             trigger: TRIGGERS.DRAGGED_OVER_INDEX,
             id: focusedItemId,
-            source: SOURCES.KEYBOARD,
-            grabActive: true
+            source: SOURCES.KEYBOARD
         });
         pendingMove = true;
     }
