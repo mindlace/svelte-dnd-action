@@ -46,6 +46,11 @@ describe("keyboardAction escape-to-cancel", () => {
         window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
     }
 
+    // The library alerts through a single hidden live region shared by all zones.
+    function alertText() {
+        return document.getElementById("dnd-action-aria-alert")?.textContent ?? "";
+    }
+
     afterEach(() => {
         actions
             .splice(0)
@@ -203,5 +208,50 @@ describe("keyboardAction escape-to-cancel", () => {
             record.considers.map(c => c.trigger),
             "should still be able to grab"
         ).to.deep.equal([TRIGGERS.DRAG_STARTED]);
+    });
+
+    it("ends the grab when an arrow relocate finds the grabbed card gone from every zone", () => {
+        const {
+            zone: zoneA,
+            action: actionA,
+            children: [cardA]
+        } = createZone([{id: "a"}, {id: "b"}]);
+        createZone([{id: "c"}]);
+        const recordA = track(zoneA);
+
+        grab(cardA);
+        // A consumer re-render that removes the grabbed card outright: it is now in no
+        // zone of this type, so the re-sync has nothing to re-point focusedDz at.
+        zoneA.removeChild(cardA);
+        actionA.update({items: [{id: "b"}]});
+
+        key(cardA, "ArrowRight");
+
+        expect(lastConsider(recordA).trigger, "the grab must end rather than silently no-op").to.equal(TRIGGERS.DRAG_STOPPED);
+    });
+
+    it("does not announce a cancel for a card that is gone from every zone", () => {
+        const {
+            zone: zoneA,
+            action: actionA,
+            children: [cardA]
+        } = createZone([{id: "a"}, {id: "b"}]);
+        const {zone: zoneZ, action: actionZ} = createZone([]);
+        const recordA = track(zoneA);
+        const recordZ = track(zoneZ);
+
+        grab(cardA);
+        key(cardA, "ArrowRight");
+        // The relocate spliced the card into zoneZ's LIVE items array, so clearing the
+        // origin alone would leave it findable. Both zones have to settle without it for
+        // the card to be gone from the board.
+        actionA.update({items: [{id: "b"}]});
+        actionZ.update({items: []});
+        const before = alertText();
+
+        escape();
+
+        expect(alertText(), "there is no move left to cancel").to.equal(before);
+        expect(recordA.finalizes.concat(recordZ.finalizes), "escape still must not commit").to.be.empty;
     });
 });

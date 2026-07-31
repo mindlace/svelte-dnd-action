@@ -93,6 +93,12 @@ function globalKeyDownHandler(e) {
             // the wrong (empty) origin and silently no-op.
             const liveDz = draggedItemType ? zoneHoldingItem(draggedItemType, focusedItemId) : null;
             if (liveDz) focusedDz = liveDz;
+            // The card is in no zone at all: there is no move left to restore and nothing
+            // to announce. End the grab the way a cancel does — `commit: false`, no string.
+            if (!grabIsLive()) {
+                handleDrop(true, true, false);
+                break;
+            }
             const autoAriaDisabled = dzToConfig.get(focusedDz).autoAriaDisabled;
             if (grabOrigin && focusedDz !== grabOrigin.dz) {
                 relocateToZone(grabOrigin.dz, grabOrigin.index);
@@ -128,9 +134,16 @@ function refreshActiveDragTabIndices() {
     });
 }
 
-function grabIsAlive() {
+// Is the grabbed item still in the zone focusedDz points at? Pure — callers that want
+// upstream's "it's gone, end the grab" policy use grabIsAlive below; callers that need a
+// different ending (ex: Escape, which must not commit) branch on this directly.
+function grabIsLive() {
     const focusedConfig = dzToConfig.get(focusedDz);
-    if (focusedConfig?.items.some(item => item[ITEM_ID_KEY] === focusedItemId)) return true;
+    return !!focusedConfig?.items.some(item => item[ITEM_ID_KEY] === focusedItemId);
+}
+
+function grabIsAlive() {
+    if (grabIsLive()) return true;
     printDebug(() => "dragged item is gone, dropping");
     handleDrop();
     return false;
@@ -204,14 +217,6 @@ function relocateToZone(targetDz, atIndex) {
     focusedDzLabel = targetDz.getAttribute("aria-label") || "";
     const {items: originItems} = dzToConfig.get(focusedDz);
     const originIdx = originItems.findIndex(item => item[ITEM_ID_KEY] === focusedItemId);
-    // Defensive: if the grabbed item is no longer in its origin zone's items (an
-    // intervening consumer re-render under load can transiently desync the bound items
-    // from focusedDz), DON'T splice — `splice(-1, 1)` would remove the wrong element and
-    // insert `undefined` into the target, vanishing the card from both zones. Abort the
-    // relocate as a no-op; the next keydown (or the drop) operates on settled state.
-    if (originIdx < 0) {
-        return {index: 0, count: dzToConfig.get(targetDz).items.length, zoneLabel: focusedDzLabel};
-    }
     const itemToMove = originItems.splice(originIdx, 1)[0];
     const {items: targetItems} = dzToConfig.get(targetDz);
     const clampedIdx = Math.max(0, Math.min(atIndex, targetItems.length));
@@ -388,6 +393,9 @@ export function dndzone(node, options) {
         // committed move + re-render can leave focusedDz stale).
         const liveDz = zoneHoldingItem(config.type, focusedItemId);
         if (liveDz) focusedDz = liveDz;
+        // Re-sync repairs a stale pointer; this catches the case it cannot — the card is
+        // in no zone at all. Upstream's policy for that is to end the grab (#694).
+        if (!grabIsAlive()) return;
         const myZoneIdx = zones.indexOf(focusedDz);
         const targetZone = zones[myZoneIdx + dir];
         if (!targetZone || dzToConfig.get(targetZone).dropFromOthersDisabled) return;
