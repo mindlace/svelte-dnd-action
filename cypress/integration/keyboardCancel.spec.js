@@ -230,6 +230,35 @@ describe("keyboardAction escape-to-cancel", () => {
         expect(lastConsider(recordA).trigger, "the grab must end rather than silently no-op").to.equal(TRIGGERS.DRAG_STOPPED);
     });
 
+    it("commits the pending step when an arrow relocate finds the card gone (unlike escape, which cancels)", () => {
+        const {
+            zone: zoneA,
+            action: actionA,
+            children: [cardA]
+        } = createZone([{id: "a"}, {id: "b"}]);
+        const {zone: zoneZ, action: actionZ} = createZone([{id: "c"}]);
+        const recordA = track(zoneA);
+        const recordZ = track(zoneZ);
+
+        grab(cardA);
+        key(cardA, "ArrowDown");
+        expect(lastConsider(recordA).ids, "should tentatively reorder within the lane (pendingMove)").to.deep.equal(["b", "a"]);
+
+        // A consumer re-render that removes the grabbed card outright: every zone settles
+        // without it.
+        zoneA.removeChild(cardA);
+        actionA.update({items: [{id: "b"}]});
+        actionZ.update({items: [{id: "c"}]});
+
+        key(cardA, "ArrowRight");
+
+        expect(lastConsider(recordA).trigger, "the grab must end rather than silently no-op").to.equal(TRIGGERS.DRAG_STOPPED);
+        // Unlike escape (which never commits), an arrow relocate onto a vanished card uses
+        // upstream's policy (grabIsAlive -> handleDrop with its default commit: true), so
+        // the pending step from ArrowDown above IS committed here.
+        expect(recordA.finalizes.concat(recordZ.finalizes), "the pending step must be committed, not cancelled").to.not.be.empty;
+    });
+
     it("does not announce a cancel for a card that is gone from every zone", () => {
         const {
             zone: zoneA,
