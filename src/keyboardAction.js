@@ -173,12 +173,16 @@ function zoneHoldingItem(type, itemId) {
     return null;
 }
 
-// One tab stop per board: activeEl gets tabIndex 0, every other card across the
-// type's zones gets -1.
+// One tab stop per board: activeEl gets its zone's configured zoneItemTabIndex, every
+// other card across the type's zones gets -1. Reading the index per zone rather than
+// from the calling zone keeps upstream's option meaningful when zones of one type are
+// configured differently.
 function setRovingTabindex(type, activeEl) {
     for (const dz of orderedZonesOfType(type)) {
+        const cfg = dzToConfig.get(dz);
+        const activeTabIndex = cfg ? cfg.zoneItemTabIndex : 0;
         for (const child of dz.children) {
-            child.tabIndex = child === activeEl ? 0 : -1;
+            child.tabIndex = child === activeEl ? activeTabIndex : -1;
         }
     }
 }
