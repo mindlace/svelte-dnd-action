@@ -1,5 +1,6 @@
 import {dndzone} from "../../src/keyboardAction";
 import {TRIGGERS} from "../../src/constants";
+import {setAriaStrings} from "../../src/helpers/aria";
 
 describe("keyboardAction", () => {
     const actions = [];
@@ -21,6 +22,7 @@ describe("keyboardAction", () => {
             .reverse()
             .forEach(action => action.destroy());
         zones.splice(0).forEach(zone => zone.remove());
+        setAriaStrings(null);
     });
 
     it("can synchronously destroy the focused zone from the drag-stopped handler", () => {
@@ -218,6 +220,47 @@ describe("keyboardAction", () => {
             item.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
 
             expect(alertText()).to.equal("Moved item Card 0 to position 2 in the list To do");
+        });
+
+        it("names the destination list when arrowing across lanes", () => {
+            const {
+                children: [item]
+            } = createLabelledZone([{id: "a"}, {id: "b"}], "To do");
+            createLabelledZone([{id: "c"}], "Doing");
+
+            grab(item);
+            item.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+
+            expect(alertText()).to.equal("Moved item Card 0 to the list Doing");
+        });
+
+        it("announces the cancel when Escape aborts the grab", () => {
+            const {
+                children: [item]
+            } = createLabelledZone([{id: "a"}, {id: "b"}], "To do");
+
+            grab(item);
+            window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+
+            expect(alertText()).to.equal("Stopped dragging item Card 0");
+        });
+
+        it("routes the board-specific messages through setAriaStrings too", () => {
+            setAriaStrings({
+                movedToZone: ({itemLabel, zoneLabel}) => `${itemLabel} → ${zoneLabel}`,
+                cancelled: ({itemLabel}) => `Cancelled ${itemLabel}`
+            });
+            const {
+                children: [item]
+            } = createLabelledZone([{id: "a"}, {id: "b"}], "To do");
+            createLabelledZone([{id: "c"}], "Doing");
+
+            grab(item);
+            item.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+            expect(alertText()).to.equal("Card 0 → Doing");
+
+            window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+            expect(alertText()).to.equal("Cancelled Card 0");
         });
     });
 });

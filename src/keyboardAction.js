@@ -1,7 +1,7 @@
 import {decrementActiveDropZoneCount, incrementActiveDropZoneCount, ITEM_ID_KEY, SOURCES, TRIGGERS} from "./constants";
 import {styleActiveDropZones, styleInactiveDropZones} from "./helpers/styler";
 import {dispatchConsiderEvent, dispatchFinalizeEvent} from "./helpers/dispatcher";
-import {initAria, alertToScreenReader, destroyAria} from "./helpers/aria";
+import {initAria, announceToScreenReader, destroyAria} from "./helpers/aria";
 import {toString} from "./helpers/util";
 import {printDebug} from "./constants";
 
@@ -97,7 +97,7 @@ function globalKeyDownHandler(e) {
             if (grabOrigin && focusedDz !== grabOrigin.dz) {
                 relocateToZone(grabOrigin.dz, grabOrigin.index);
             }
-            announce("cancel", autoAriaDisabled, () => `Stopped dragging item ${focusedItemLabel}`, {
+            announce("cancelled", autoAriaDisabled, {
                 index: grabOrigin ? grabOrigin.index : 0,
                 count: focusedDz ? dzToConfig.get(focusedDz).items.length : 0,
                 zoneLabel: focusedDz ? focusedDz.getAttribute("aria-label") || "" : ""
@@ -178,26 +178,22 @@ function focusCard(type, el) {
     el.focus();
 }
 
-// Announcement seam (board a11y). When the active drag's config supplies an
-// `onAnnounce` callback, emit a structured event and SUPPRESS the built-in
-// fixed-string `alertToScreenReader` (the app owns the copy). When it's absent,
-// fall back to the stock string (additive — non-opted consumers unchanged).
-// `autoAriaDisabled` stays the coarse off-switch (no announcement either way).
-function announce(type, autoAriaDisabled, buildString, ctx) {
+// Announcement seam (board a11y). Every grab-lifecycle announcement goes through the
+// aria string table, so a consumer that wants different copy — a translation, or wording
+// tuned to a board rather than a list — installs it once with `setAriaStrings` instead of
+// re-implementing the announcements. `autoAriaDisabled` stays the coarse off-switch.
+// `index` is 0-based internally; the string table speaks in 1-based `position`.
+function announce(key, autoAriaDisabled, ctx) {
     if (autoAriaDisabled) return;
-    const onAnnounce = focusedDz && dzToConfig.get(focusedDz) && dzToConfig.get(focusedDz).onAnnounce;
-    if (onAnnounce) {
-        onAnnounce({
-            type,
-            itemId: focusedItemId,
-            itemLabel: focusedItemLabel,
-            zoneLabel: ctx && ctx.zoneLabel !== undefined ? ctx.zoneLabel : focusedDzLabel,
-            index: ctx && ctx.index !== undefined ? ctx.index : 0,
-            count: ctx && ctx.count !== undefined ? ctx.count : 0
-        });
-        return;
-    }
-    alertToScreenReader(buildString());
+    const {index, zoneLabel, ...rest} = ctx || {};
+    announceToScreenReader(key, {
+        itemLabel: focusedItemLabel,
+        zoneLabel: zoneLabel !== undefined ? zoneLabel : focusedDzLabel,
+        position: (index !== undefined ? index : 0) + 1,
+        count: 0,
+        // key-specific extras (ex: dragStarted's canMoveBetweenZones) pass straight through
+        ...rest
+    });
 }
 
 // Splice the grabbed item out of its origin zone and insert it into `targetDz` at
@@ -234,7 +230,12 @@ function relocateToZone(targetDz, atIndex) {
     dispatchConsiderEvent(dzFrom, originItems, {trigger: TRIGGERS.DRAGGED_LEFT, id: movedItemId, source: SOURCES.KEYBOARD, grabActive: true});
     // The origin's consider may have torn the target zone down; don't dispatch into a dead zone.
     if (dzToConfig.has(targetDz)) {
-        dispatchConsiderEvent(targetDz, targetItems, {trigger: TRIGGERS.DRAGGED_ENTERED, id: movedItemId, source: SOURCES.KEYBOARD, grabActive: true});
+        dispatchConsiderEvent(targetDz, targetItems, {
+            trigger: TRIGGERS.DRAGGED_ENTERED,
+            id: movedItemId,
+            source: SOURCES.KEYBOARD,
+            grabActive: true
+        });
     }
     return {index: clampedIdx, count: targetItems.length, zoneLabel: focusedDzLabel};
 }
@@ -255,12 +256,7 @@ function handleZoneFocus(e) {
     const {items: targetItems, autoAriaDisabled} = dzToConfig.get(newlyFocusedDz);
     const atIndex = toEnd ? targetItems.length : 0;
     const ctx = relocateToZone(newlyFocusedDz, atIndex);
-    announce("move", autoAriaDisabled, () =>
-        toEnd
-            ? `Moved item ${focusedItemLabel} to the end of the list ${ctx.zoneLabel}`
-            : `Moved item ${focusedItemLabel} to the beginning of the list ${ctx.zoneLabel}`,
-        ctx
-    );
+    announce(toEnd ? "movedToZoneEnd" : "movedToZoneStart", autoAriaDisabled, ctx);
 }
 
 function triggerAllDzsUpdate() {
@@ -281,7 +277,7 @@ function handleDrop(dispatchConsider = true, suppressAnnounce = false, commit = 
     if (!suppressAnnounce) {
         const items = droppedConfig.items;
         const idx = items.findIndex(item => item[ITEM_ID_KEY] === droppedItemId);
-        announce("drop", droppedConfig.autoAriaDisabled, () => `Stopped dragging item ${focusedItemLabel}`, {
+        announce("dropped", droppedConfig.autoAriaDisabled, {
             index: idx < 0 ? 0 : idx,
             count: items.length,
             zoneLabel: droppedDz.getAttribute("aria-label") || ""
@@ -315,11 +311,21 @@ function handleDrop(dispatchConsider = true, suppressAnnounce = false, commit = 
     if (shouldCommit && dzToConfig.has(droppedDz)) {
         const originDz = droppedOrigin && droppedOrigin.dz !== droppedDz ? droppedOrigin.dz : null;
         if (originDz && dzToConfig.has(originDz)) {
-            dispatchFinalizeEvent(originDz, dzToConfig.get(originDz).items, {trigger: TRIGGERS.DROPPED_INTO_ANOTHER, id: droppedItemId, source: SOURCES.KEYBOARD, grabActive: false});
+            dispatchFinalizeEvent(originDz, dzToConfig.get(originDz).items, {
+                trigger: TRIGGERS.DROPPED_INTO_ANOTHER,
+                id: droppedItemId,
+                source: SOURCES.KEYBOARD,
+                grabActive: false
+            });
         }
         // The origin's finalize may have torn the destination down; don't dispatch into a dead zone.
         if (dzToConfig.has(droppedDz)) {
-            dispatchFinalizeEvent(droppedDz, dzToConfig.get(droppedDz).items, {trigger: TRIGGERS.DROPPED_INTO_ZONE, id: droppedItemId, source: SOURCES.KEYBOARD, grabActive: false});
+            dispatchFinalizeEvent(droppedDz, dzToConfig.get(droppedDz).items, {
+                trigger: TRIGGERS.DROPPED_INTO_ZONE,
+                id: droppedItemId,
+                source: SOURCES.KEYBOARD,
+                grabActive: false
+            });
         }
     }
 
@@ -353,8 +359,7 @@ export function dndzone(node, options) {
         dropTargetStyle: DEFAULT_DROP_TARGET_STYLE,
         dropTargetClasses: [],
         autoAriaDisabled: false,
-        onActivate: undefined,
-        onAnnounce: undefined
+        onActivate: undefined
     };
 
     function swap(arr, i, j) {
@@ -389,10 +394,7 @@ export function dndzone(node, options) {
         const fromItems = dzToConfig.get(focusedDz).items;
         const row = fromItems.findIndex(item => item[ITEM_ID_KEY] === focusedItemId);
         const ctx = relocateToZone(targetZone, row < 0 ? 0 : row);
-        announce("move", config.autoAriaDisabled, () =>
-            `Moved item ${focusedItemLabel} to the list ${ctx.zoneLabel}`,
-            ctx
-        );
+        announce("movedToZone", config.autoAriaDisabled, ctx);
     }
 
     function handleKeyDown(e) {
@@ -507,16 +509,18 @@ export function dndzone(node, options) {
         const curIdx = idx < 0 ? items.findIndex(item => item[ITEM_ID_KEY] === focusedItemId) : idx;
         const nextIdx = curIdx + dir;
         if (nextIdx < 0 || nextIdx > children.length - 1) return;
-        announce("move", config.autoAriaDisabled, () =>
-            `Moved item ${focusedItemLabel} to position ${nextIdx + 1} in the list ${focusedDzLabel}`,
-            {index: nextIdx, count: items.length, zoneLabel: focusedDzLabel}
-        );
+        announce("movedToPosition", config.autoAriaDisabled, {index: nextIdx, count: items.length, zoneLabel: focusedDzLabel});
         swap(items, curIdx, nextIdx);
         // TENTATIVE-UNTIL-DROP (#535): a within-lane step is a consider too. Making only the
         // cross-lane steps tentative would not work — a within-lane finalize carries the
         // destination zone's items and the grabbed card's id, so it would commit the pending
         // cross-lane position mid-gesture, which is exactly what #535 is about.
-        dispatchConsiderEvent(focusedDz, items, {trigger: TRIGGERS.DRAGGED_OVER_INDEX, id: focusedItemId, source: SOURCES.KEYBOARD, grabActive: true});
+        dispatchConsiderEvent(focusedDz, items, {
+            trigger: TRIGGERS.DRAGGED_OVER_INDEX,
+            id: focusedItemId,
+            source: SOURCES.KEYBOARD,
+            grabActive: true
+        });
         pendingMove = true;
     }
     function handleDragStart(e) {
@@ -537,13 +541,12 @@ export function dndzone(node, options) {
             dz => dzToConfig.get(dz).dropTargetStyle,
             dz => dzToConfig.get(dz).dropTargetClasses
         );
-        announce("grab", config.autoAriaDisabled, () => {
-            let msg = `Started dragging item ${focusedItemLabel}. Use the arrow keys to move it within its list ${focusedDzLabel}`;
-            if (dropTargets.length > 1) {
-                msg += `, or tab to another list in order to move the item into it`;
-            }
-            return msg;
-        }, {index: grabOrigin.index, count: startItems.length, zoneLabel: focusedDzLabel});
+        announce("dragStarted", config.autoAriaDisabled, {
+            index: grabOrigin.index,
+            count: startItems.length,
+            zoneLabel: focusedDzLabel,
+            canMoveBetweenZones: dropTargets.length > 1
+        });
         dispatchConsiderEvent(node, dzToConfig.get(node).items, {trigger: TRIGGERS.DRAG_STARTED, id: focusedItemId, source: SOURCES.KEYBOARD});
         triggerAllDzsUpdate();
     }
@@ -575,8 +578,7 @@ export function dndzone(node, options) {
         dropTargetStyle = DEFAULT_DROP_TARGET_STYLE,
         dropTargetClasses = [],
         autoAriaDisabled = false,
-        onActivate = undefined,
-        onAnnounce = undefined
+        onActivate = undefined
     }) {
         config.items = [...items];
         config.dragDisabled = dragDisabled;
@@ -587,7 +589,6 @@ export function dndzone(node, options) {
         config.dropTargetClasses = dropTargetClasses;
         config.autoAriaDisabled = autoAriaDisabled;
         config.onActivate = onActivate;
-        config.onAnnounce = onAnnounce;
         if (config.type && newType !== config.type) {
             unregisterDropZone(node, config.type);
         }

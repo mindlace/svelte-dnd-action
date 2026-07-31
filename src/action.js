@@ -81,7 +81,6 @@ function validateOptions(options) {
         delayTouchStart,
         dropAnimationDisabled,
         onActivate,
-        onAnnounce,
         ...rest
     } = options;
     /*eslint-enable*/

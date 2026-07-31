@@ -75,22 +75,6 @@ export interface Options<T extends Item = Item> {
      * behaviour. Additive: undefined ⇒ stock behaviour unchanged.
      */
     onActivate?: (itemId: string) => void;
-    /**
-     * Opt-in (board a11y): called at each grab-lifecycle step. When provided, the
-     * library suppresses its built-in fixed-string screen-reader announcements (the
-     * app owns the copy); when absent, the stock announcements fire. `autoAriaDisabled`
-     * stays the coarse off-switch. Additive: undefined ⇒ stock behaviour unchanged.
-     */
-    onAnnounce?: (event: KeyboardDndAnnounceEvent) => void;
-}
-
-export interface KeyboardDndAnnounceEvent {
-    type: "grab" | "move" | "drop" | "cancel";
-    itemId: string;
-    itemLabel: string;
-    zoneLabel: string;
-    index: number;
-    count: number;
 }
 
 export interface DndZoneAttributes<T> {
@@ -110,7 +94,11 @@ export interface AriaStrings {
     movedToPosition?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
     movedToZoneEnd?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
     movedToZoneStart?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
+    /** Cross-lane arrow move: the card keeps its row, so the list it landed in is the news. */
+    movedToZone?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
     dropped?: (ctx: {itemLabel: string}) => string;
+    /** Escape. Separate from `dropped` so a cancel can be worded differently from a commit. */
+    cancelled?: (ctx: {itemLabel: string}) => string;
     zoneActiveInstruction?: string;
     zoneDragDisabledInstruction?: string;
 }

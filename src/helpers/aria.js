@@ -17,12 +17,19 @@ const DEFAULT_ARIA_STRINGS = {
     movedToPosition: ({itemLabel, zoneLabel, position}) => `Moved item ${itemLabel} to position ${position} in the list ${zoneLabel}`,
     movedToZoneEnd: ({itemLabel, zoneLabel}) => `Moved item ${itemLabel} to the end of the list ${zoneLabel}`,
     movedToZoneStart: ({itemLabel, zoneLabel}) => `Moved item ${itemLabel} to the beginning of the list ${zoneLabel}`,
+    // Cross-lane arrow move: unlike movedToZoneEnd/Start the item keeps its row, so the
+    // position within the new list is not the point - the list it landed in is.
+    movedToZone: ({itemLabel, zoneLabel}) => `Moved item ${itemLabel} to the list ${zoneLabel}`,
     dropped: ({itemLabel}) => `Stopped dragging item ${itemLabel}`,
+    // Escape. Deliberately a separate key from `dropped` even though the stock copy matches:
+    // a cancel and a commit are different events to a screen reader user, and a consumer
+    // translating this should be able to say so ("Cancelled", "Returned to ...").
+    cancelled: ({itemLabel}) => `Stopped dragging item ${itemLabel}`,
     zoneActiveInstruction: "Tab to one the items and press space-bar or enter to start dragging it",
     zoneDragDisabledInstruction: "This is a disabled drag and drop list"
 };
 
-const FUNCTION_ARIA_STRING_KEYS = ["dragStarted", "movedToPosition", "movedToZoneEnd", "movedToZoneStart", "dropped"];
+const FUNCTION_ARIA_STRING_KEYS = ["dragStarted", "movedToPosition", "movedToZoneEnd", "movedToZoneStart", "movedToZone", "dropped", "cancelled"];
 const STRING_ARIA_STRING_KEYS = ["zoneActiveInstruction", "zoneDragDisabledInstruction"];
 
 let ariaStrings = {...DEFAULT_ARIA_STRINGS};

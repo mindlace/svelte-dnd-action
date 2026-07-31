@@ -187,7 +187,9 @@ setAriaStrings({
 });
 ```
 
-Every key is optional — what you leave out keeps its English default. The five message keys are functions so that you control word order and pluralisation; `dragStarted`, `movedToPosition`, `movedToZoneEnd` and `movedToZoneStart` receive `itemLabel` and `zoneLabel` (from the `aria-label` attributes you already provide), plus `position` and `count` for the move messages and `canMoveBetweenZones` for `dragStarted`; `dropped` receives only `itemLabel`.
+Every key is optional — what you leave out keeps its English default. The message keys are functions so that you control word order and pluralisation; `dragStarted`, `movedToPosition`, `movedToZoneEnd`, `movedToZoneStart` and `movedToZone` receive `itemLabel` and `zoneLabel` (from the `aria-label` attributes you already provide), plus `position` and `count` for the move messages and `canMoveBetweenZones` for `dragStarted`; `dropped` and `cancelled` receive only `itemLabel`.
+
+Two of those keys belong to this fork's board navigation: `movedToZone` is the cross-lane arrow move (the card keeps its row, so the destination list is the news, not the position), and `cancelled` is Escape. `cancelled` ships with the same stock copy as `dropped`, but it is a separate key on purpose — a cancel and a commit are different events to a screen-reader user, and this lets you say so.
 
 You can call it again whenever the user changes language — the static instructions already in the DOM are re-rendered too. Pass `null` to go back to the built-in English. Passing an unrecognised key, or a value of the wrong type for its key, throws, so mistakes surface immediately. This is global and applies to all dndzones — you can't configure two zones with different aria strings.
 
