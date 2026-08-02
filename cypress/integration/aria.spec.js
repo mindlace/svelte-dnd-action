@@ -56,23 +56,19 @@ describe("aria strings", () => {
     });
 
     it("throws on an unknown key and names the supported ones", () => {
-        // Note: matched via substring rather than `.to.throw(/regex/)` - the Cypress version pinned in this
-        // repo (15.18.1) has a bug where chai's throw assertion never matches a RegExp errMsgMatcher, even
-        // for a bare `throw new Error(...)` with no involvement of this library's code.
+        // Cypress 15.18.1 does not match RegExp error assertions reliably, so compare substrings.
         expect(() => setAriaStrings({onDrop: () => "nope"})).to.throw("onDrop");
         expect(() => setAriaStrings({onDrop: () => "nope"})).to.throw("movedToPosition");
     });
 
     it("throws when a message key is given a non-function value", () => {
-        // A locale file missing a key would otherwise silently install `undefined`, and the screen
-        // reader would speak the literal word "undefined" on every drop.
+        // Missing translation entries often produce undefined; reject them before they can be announced.
         expect(() => setAriaStrings({dropped: undefined})).to.throw("dropped");
         expect(() => setAriaStrings({dropped: "Stopped dragging"})).to.throw("dropped");
     });
 
     it("throws when an instruction key is given a non-string value", () => {
-        // A natural mistake since the other five keys are functions - this would otherwise read the
-        // literal source text of the function aloud to every screen-reader user who tabs into a zone.
+        // Instruction keys are strings; reject formatter functions instead of exposing their source text.
         expect(() => setAriaStrings({zoneActiveInstruction: () => "Tab to an item"})).to.throw("zoneActiveInstruction");
     });
 
@@ -91,7 +87,7 @@ describe("aria strings", () => {
     });
 
     it("throws a clear error for non-object arguments instead of silently no-oping", () => {
-        // null/undefined are the legitimate "reset to defaults" signal and must keep working.
+        // null and undefined reset the active strings to their defaults.
         expect(() => setAriaStrings(42)).to.throw("42");
         expect(() => setAriaStrings([])).to.throw("setAriaStrings");
         expect(() => setAriaStrings("fr")).to.throw("setAriaStrings");
@@ -102,12 +98,26 @@ describe("aria strings", () => {
         expect(alertText(), "an invalid call should not touch the existing table").to.equal("Carte A déposé");
     });
 
-    it("can be called again to switch locale", () => {
-        setAriaStrings({dropped: ({itemLabel}) => `${itemLabel} déposé`});
-        setAriaStrings({dropped: ({itemLabel}) => `${itemLabel} abgelegt`});
+    it("treats each call as a whole locale, not a patch on the previous one", () => {
+        // Cover keys shared by both locales and keys supplied by only one locale.
+        setAriaStrings({
+            dropped: ({itemLabel}) => `${itemLabel} déposé`,
+            zoneActiveInstruction: "Tabulez jusqu'à un élément et appuyez sur espace"
+        });
+        setAriaStrings({
+            dropped: ({itemLabel}) => `${itemLabel} abgelegt`,
+            movedToZoneEnd: ({itemLabel, zoneLabel}) => `${itemLabel} ans Ende der Liste ${zoneLabel} verschoben`
+        });
 
         announceToScreenReader("dropped", {itemLabel: "Karte A"});
-        expect(alertText()).to.equal("Karte A abgelegt");
+        expect(alertText(), "a key both locales name should speak the new one").to.equal("Karte A abgelegt");
+
+        announceToScreenReader("movedToZoneEnd", {itemLabel: "Karte A", zoneLabel: "Fertig", position: 3, count: 3});
+        expect(alertText(), "a key only the new locale names should take effect").to.equal("Karte A ans Ende der Liste Fertig verschoben");
+
+        expect(document.getElementById(ZONE_ACTIVE_ID).textContent, "a key only the old locale named should be English again, not French").to.equal(
+            "Tab to one the items and press space-bar or enter to start dragging it"
+        );
     });
 
     it("resets to the defaults when passed null", () => {

@@ -22,7 +22,6 @@ describe("keyboardAction", () => {
             .reverse()
             .forEach(action => action.destroy());
         zones.splice(0).forEach(zone => zone.remove());
-        setAriaStrings(null);
     });
 
     it("can synchronously destroy the focused zone from the drag-stopped handler", () => {
@@ -185,6 +184,10 @@ describe("keyboardAction", () => {
     });
 
     describe("announcements", () => {
+        afterEach(() => {
+            setAriaStrings(null);
+        });
+
         function alertText() {
             return document.getElementById("dnd-action-aria-alert").textContent;
         }
@@ -220,6 +223,139 @@ describe("keyboardAction", () => {
             item.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
 
             expect(alertText()).to.equal("Moved item Card 0 to position 2 in the list To do");
+        });
+
+        it("routes every announcement through the overridable strings", () => {
+            const seen = [];
+            setAriaStrings({
+                dragStarted: ctx => `grab:${ctx.itemLabel}:${ctx.zoneLabel}:${ctx.canMoveBetweenZones}`,
+                movedToPosition: ctx => `move:${ctx.itemLabel}:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`,
+                dropped: ctx => `drop:${ctx.itemLabel}`
+            });
+            const {
+                children: [item]
+            } = createLabelledZone([{id: "a"}, {id: "b"}], "To do");
+
+            grab(item);
+            seen.push(alertText());
+            item.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+            seen.push(alertText());
+            item.dispatchEvent(new KeyboardEvent("keydown", {key: " ", bubbles: true, cancelable: true}));
+            seen.push(alertText());
+
+            expect(seen).to.deep.equal(["grab:Card 0:To do:false", "move:Card 0:To do:2:2", "drop:Card 0"]);
+        });
+
+        it("gives the grab and the drop the item's seat and the zone's size", () => {
+            const seen = [];
+            setAriaStrings({
+                dragStarted: ctx => `grab:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`,
+                dropped: ctx => `drop:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`
+            });
+            const {
+                children: [, second]
+            } = createLabelledZone([{id: "a"}, {id: "b"}, {id: "c"}], "To do");
+
+            grab(second);
+            seen.push(alertText());
+            second.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+            second.dispatchEvent(new KeyboardEvent("keydown", {key: " ", bubbles: true, cancelable: true}));
+            seen.push(alertText());
+
+            // Multiple items ensure that hardcoded positions and stale counts fail the assertion.
+            expect(seen).to.deep.equal(["grab:To do:2:3", "drop:To do:3:3"]);
+        });
+
+        it("reports canMoveBetweenZones when another zone can accept the item", () => {
+            setAriaStrings({dragStarted: ctx => `${ctx.canMoveBetweenZones}`});
+            const {
+                children: [item]
+            } = createLabelledZone([{id: "a"}], "To do");
+            createLabelledZone([], "Done");
+
+            grab(item);
+
+            expect(alertText()).to.equal("true");
+        });
+
+        it("uses the cross-zone strings when focus moves to another zone", () => {
+            setAriaStrings({
+                movedToZoneEnd: ctx => `end:${ctx.itemLabel}:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`,
+                movedToZoneStart: ctx => `start:${ctx.itemLabel}:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`
+            });
+            const {zone: zoneA, children: itemsA} = createLabelledZone([{id: "a"}], "To do");
+            const {zone: zoneB} = createLabelledZone([{id: "b"}], "Done");
+            // Give the zones distinct positions so both insertion branches are reachable.
+            zoneA.style.height = "50px";
+            zoneB.style.height = "50px";
+
+            // zoneB renders below zoneA, so moving into it is a move to the beginning.
+            grab(itemsA[0]);
+            zoneB.dispatchEvent(new FocusEvent("focus"));
+            expect(alertText()).to.equal("start:Card 0:Done:1:2");
+
+            // and moving back up into zoneA - which sits above zoneB - is a move to the end.
+            zoneA.dispatchEvent(new FocusEvent("focus"));
+            expect(alertText()).to.equal("end:Card 0:To do:1:1");
+        });
+
+        it("stays silent when autoAriaDisabled is set, even with overrides installed", () => {
+            setAriaStrings({dragStarted: () => "SHOULD NOT BE SPOKEN"});
+            const {
+                children: [item]
+            } = createLabelledZone([{id: "a"}], "To do", {autoAriaDisabled: true});
+
+            grab(item);
+
+            expect(document.getElementById("dnd-action-aria-alert").textContent).to.equal("");
+        });
+
+        it("does not get stuck dragging when a consumer formatter throws on drop, and announces the default instead", () => {
+            setAriaStrings({
+                dropped: () => {
+                    throw new Error("boom");
+                }
+            });
+            const {
+                zone,
+                children: [item]
+            } = createLabelledZone([{id: "a"}, {id: "b"}], "To do");
+            const triggers = [];
+            zone.addEventListener("consider", e => triggers.push(e.detail.info.trigger));
+
+            grab(item);
+            item.dispatchEvent(new KeyboardEvent("keydown", {key: " ", bubbles: true, cancelable: true}));
+
+            expect(alertText(), "should fall back to the default text instead of staying silent or speaking undefined").to.equal(
+                "Stopped dragging item Card 0"
+            );
+            expect(triggers, "the drop should still have dispatched the drag-stopped consider event").to.include(TRIGGERS.DRAG_STOPPED);
+            expect(zone.tabIndex, "the drop should have completed and restored the zone's tab index").to.equal(0);
+            expect(item.tabIndex, "the drop should have completed and restored the item's tab index").to.equal(0);
+
+            // Starting another drag verifies that the formatter error did not leave drag state active.
+            setAriaStrings(null);
+            grab(item);
+            expect(alertText(), "a fresh grab afterwards should start a new drag rather than drop again").to.equal(
+                "Started dragging item Card 0. Use the arrow keys to move it within its list To do"
+            );
+        });
+
+        it("does not throw when a consumer formatter throws while a zone is destroyed mid-drag", () => {
+            setAriaStrings({
+                dropped: () => {
+                    throw new Error("boom");
+                }
+            });
+            const {
+                action,
+                children: [item]
+            } = createLabelledZone([{id: "a"}], "To do");
+
+            grab(item);
+
+            // Destroying the focused zone calls handleDrop synchronously; formatter errors must not interrupt teardown.
+            expect(() => action.destroy()).to.not.throw();
         });
 
         it("names the destination list when arrowing across lanes", () => {
@@ -261,28 +397,6 @@ describe("keyboardAction", () => {
 
             window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
             expect(alertText()).to.equal("Cancelled Card 0");
-        });
-
-        // The seat and the zone size reach EVERY message, not just the move ones - which is what
-        // lets a consumer word a grab, a drop or a cancel positionally. The grabbed card is the
-        // middle of three on purpose: in a single-item zone a hardcoded position of 1 and a
-        // stand-in count would both pass.
-        it("gives the grab and the drop the item's seat and the zone's size", () => {
-            const seen = [];
-            setAriaStrings({
-                dragStarted: ctx => `grab:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`,
-                dropped: ctx => `drop:${ctx.zoneLabel}:${ctx.position}:${ctx.count}`
-            });
-            const {
-                children: [, second]
-            } = createLabelledZone([{id: "a"}, {id: "b"}, {id: "c"}], "To do");
-
-            grab(second);
-            seen.push(alertText());
-            second.dispatchEvent(new KeyboardEvent("keydown", {key: " ", bubbles: true, cancelable: true}));
-            seen.push(alertText());
-
-            expect(seen).to.deep.equal(["grab:To do:2:3", "drop:To do:2:3"]);
         });
 
         it("gives the cancel the seat the card is returned to", () => {

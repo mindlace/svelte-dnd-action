@@ -1,7 +1,5 @@
 # SVELTE DND ACTION [![Known Vulnerabilities](https://snyk.io/test/github/isaacHagoel/svelte-dnd-action/badge.svg?targetFile=package.json)](https://snyk.io/test/github/isaacHagoel/svelte-dnd-action?targetFile=package.json)
 
-> Shameless plug: If you are making AI Apps check out my brand-new, open source [dev tool](https://github.com/pragmaticfish/sushify)
-
 This is a feature-complete implementation of drag and drop for Svelte using a custom action. It supports almost every imaginable drag and drop use-case, any input device and is fully accessible. <br />
 It requires very minimal configuration, while offering a rich set of primitives that allow overriding basically any of its default behaviours (using the handler functions). <br /><br />
 See full features list below. <br />
@@ -169,7 +167,7 @@ If you want to implement your own custom screen-reader alerts, roles and instruc
 
 #### Translating the screen-reader messages
 
-`autoAriaDisabled` is all-or-nothing — it turns off the aria attributes, the roles and the instructions along with the alerts. If all you want is to change the _words_ (for example to ship the library in a language other than English), import `setAriaStrings` instead and keep everything else:
+`autoAriaDisabled` disables all automatically added ARIA attributes, roles, instructions and alerts. If you only want to translate the screen-reader wording, import `setAriaStrings` and leave `autoAriaDisabled` off:
 
 ```javascript
 import {setAriaStrings} from "svelte-dnd-action";
@@ -181,17 +179,20 @@ setAriaStrings({
     movedToPosition: ({itemLabel, zoneLabel, position}) => `${itemLabel} déplacé en position ${position} dans la liste ${zoneLabel}`,
     movedToZoneEnd: ({itemLabel, zoneLabel}) => `${itemLabel} déplacé à la fin de la liste ${zoneLabel}`,
     movedToZoneStart: ({itemLabel, zoneLabel}) => `${itemLabel} déplacé au début de la liste ${zoneLabel}`,
-    dropped: ({itemLabel}) => `Déplacement de ${itemLabel} terminé`,
+    // The default message omits the destination, but custom messages can include it
+    dropped: ({itemLabel, zoneLabel, position, count}) => `${itemLabel} déposé dans ${zoneLabel}, ${position} sur ${count}`,
     zoneActiveInstruction: `Tabulez jusqu'à un élément et appuyez sur espace ou entrée pour le déplacer`,
     zoneDragDisabledInstruction: `Cette liste de glisser-déposer est désactivée`
 });
 ```
 
-Every key is optional — what you leave out keeps its English default. The message keys are functions so that you control word order and pluralisation; `dragStarted`, `movedToPosition`, `movedToZoneEnd`, `movedToZoneStart` and `movedToZone` receive `itemLabel` and `zoneLabel` (from the `aria-label` attributes you already provide), plus `position` and `count` for the move messages and `canMoveBetweenZones` for `dragStarted`; `dropped` and `cancelled` receive only `itemLabel`.
+Every key is optional. Omitted keys use their English defaults. The five announcement keys are formatter functions, so translations can control word order and pluralisation. Each formatter receives `itemLabel` and `zoneLabel` from the consumer-provided `aria-label` attributes, plus `position` and `count` for the item's 1-based position and the number of items in the relevant zone. `dragStarted` also receives `canMoveBetweenZones`. Destructure only the fields your wording needs; the built-in English messages do not use every field, but custom messages can.
 
-Two of those keys belong to this fork's board navigation: `movedToZone` is the cross-lane arrow move (the card keeps its row, so the destination list is the news, not the position), and `cancelled` is Escape. `cancelled` ships with the same stock copy as `dropped`, but it is a separate key on purpose — a cancel and a commit are different events to a screen-reader user, and this lets you say so.
+Call `setAriaStrings` during app-level initialization and again whenever the application locale changes. Each call defines the complete active locale by applying its overrides to the English defaults, so omitted keys return to English rather than retaining values from the previous locale. Existing instruction elements update immediately. Pass `null` to restore all English defaults. Unknown keys and values of the wrong type throw an error.
 
-You can call it again whenever the user changes language — the static instructions already in the DOM are re-rendered too. Pass `null` to go back to the built-in English. Passing an unrecognised key, or a value of the wrong type for its key, throws, so mistakes surface immediately. This is global and applies to all dndzones — you can't configure two zones with different aria strings.
+The setting is global to the document and applies to every dndzone. Different zones cannot use different strings at the same time.
+
+Two further keys belong to this fork's board navigation: `movedToZone` is the cross-lane arrow move (the card keeps its row, so the destination list is the news, not the position), and `cancelled` is Escape. `cancelled` ships with the same stock copy as `dropped`, but it is a separate key on purpose — a cancel and a commit are different events to a screen-reader user, and this lets you say so.
 
 ##### Keyboard support
 

@@ -89,8 +89,8 @@ export interface DndZoneAttributes<T> {
  */
 export declare function alertToScreenReader(txt: string): void;
 
-// Every key receives the same context - `announce` in keyboardAction.js assembles it
-// uniformly - so any message can be worded positionally. Only dragStarted has an extra.
+// Every message key receives the same core context - itemLabel, zoneLabel, position, count -
+// so a consumer can word any of them positionally. Only dragStarted carries an extra.
 export interface AriaStrings {
     dragStarted?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number; canMoveBetweenZones: boolean}) => string;
     movedToPosition?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
@@ -106,7 +106,9 @@ export interface AriaStrings {
 }
 
 /**
- * Overrides the strings the library speaks to screen readers. Merges over the current strings.
+ * Overrides the strings the library speaks to screen readers. Merges over the built-in English defaults,
+ * so each call describes a whole locale rather than patching the previous one - anything a call leaves
+ * out goes back to English.
  * This is global and applies to all dndzones.
  * Pass null to restore the built-in English strings.
  */
