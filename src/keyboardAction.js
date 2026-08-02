@@ -417,30 +417,7 @@ export function dndzone(node, options) {
     function handleKeyDown(e) {
         printDebug(() => ["handling key down", e.key]);
         switch (e.key) {
-            case "Enter": {
-                // we don't want to affect nested input elements or clickable elements
-                if ((e.target.disabled !== undefined || e.target.href || e.target.isContentEditable) && !allDragTargets.has(e.target)) {
-                    return;
-                }
-                // Split activation: when the consumer opts in with onActivate and the
-                // card is not grabbed, Enter yields to the app (e.g. open editor) and
-                // does NOT grab. Otherwise Enter keeps the stock grab/drop behavior.
-                if (!isDragging && config.onActivate) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setCurrentFocusedItem(e.currentTarget);
-                    config.onActivate(focusedItemId);
-                    return;
-                }
-                e.preventDefault();
-                e.stopPropagation();
-                if (isDragging) {
-                    handleDrop();
-                } else {
-                    handleDragStart(e);
-                }
-                break;
-            }
+            case "Enter":
             case " ": {
                 // we don't want to affect nested input elements or clickable elements
                 if ((e.target.disabled !== undefined || e.target.href || e.target.isContentEditable) && !allDragTargets.has(e.target)) {
@@ -448,6 +425,15 @@ export function dndzone(node, options) {
                 }
                 e.preventDefault(); // preventing scrolling on spacebar
                 e.stopPropagation();
+                // Opt-in split activation: when the consumer supplies onActivate, Enter on an
+                // item that is not being dragged belongs to them (ex: open it) rather than
+                // starting a drag. Space still grabs, so keyboard dragging stays reachable.
+                if (e.key === "Enter" && !isDragging && config.onActivate) {
+                    const {items} = dzToConfig.get(node);
+                    const idx = Array.from(node.children).indexOf(e.currentTarget);
+                    if (idx >= 0 && items[idx]) config.onActivate(items[idx][ITEM_ID_KEY]);
+                    return;
+                }
                 if (isDragging) {
                     handleDrop();
                 } else {
