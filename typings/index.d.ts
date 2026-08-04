@@ -75,6 +75,12 @@ export interface Options<T extends Item = Item> {
      * behaviour. Additive: undefined ⇒ stock behaviour unchanged.
      */
     onActivate?: (itemId: string) => void;
+    /**
+     * Which key(s) on a focused item start and stop a keyboard drag. Keys outside the trigger are
+     * left completely untouched (no preventDefault/stopPropagation), so the app can use them -
+     * ex: "space" keeps Enter free to activate the focused item. Defaults to "space_or_enter".
+     */
+    keyboardDragTrigger?: "space" | "enter" | "space_or_enter";
 }
 
 export interface DndZoneAttributes<T> {
