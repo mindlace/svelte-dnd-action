@@ -81,7 +81,6 @@ function validateOptions(options) {
         useCursorForDetection,
         delayTouchStart,
         dropAnimationDisabled,
-        onActivate,
         keyboardDragTrigger,
         ...rest
     } = options;

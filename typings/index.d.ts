@@ -69,13 +69,6 @@ export interface Options<T extends Item = Item> {
      */
     useCursorForDetection?: boolean;
     /**
-     * Opt-in (board a11y): called when Enter is pressed on a focused, NOT-grabbed
-     * card. When provided, the keyboard handler yields Enter to the app instead of
-     * grabbing (Space still grabs). When absent, Enter keeps the stock grab/drop
-     * behaviour. Additive: undefined ⇒ stock behaviour unchanged.
-     */
-    onActivate?: (itemId: string) => void;
-    /**
      * Which key(s) on a focused item start and stop a keyboard drag. Keys outside the trigger are
      * left completely untouched (no preventDefault/stopPropagation), so the app can use them -
      * ex: "space" keeps Enter free to activate the focused item. Defaults to "space_or_enter".

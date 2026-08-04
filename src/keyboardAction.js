@@ -376,7 +376,6 @@ export function dndzone(node, options) {
         dropTargetStyle: DEFAULT_DROP_TARGET_STYLE,
         dropTargetClasses: [],
         autoAriaDisabled: false,
-        onActivate: undefined,
         keyboardDragTrigger: DEFAULT_KEYBOARD_DRAG_TRIGGER
     };
 
@@ -438,15 +437,6 @@ export function dndzone(node, options) {
                 }
                 e.preventDefault(); // preventing scrolling on spacebar
                 e.stopPropagation();
-                // Opt-in split activation: when the consumer supplies onActivate, Enter on an
-                // item that is not being dragged belongs to them (ex: open it) rather than
-                // starting a drag. Space still grabs, so keyboard dragging stays reachable.
-                if (e.key === "Enter" && !isDragging && config.onActivate) {
-                    const {items} = dzToConfig.get(node);
-                    const idx = Array.from(node.children).indexOf(e.currentTarget);
-                    if (idx >= 0 && items[idx]) config.onActivate(items[idx][ITEM_ID_KEY]);
-                    return;
-                }
                 if (isDragging) {
                     handleDrop();
                 } else {
@@ -599,7 +589,6 @@ export function dndzone(node, options) {
         dropTargetStyle = DEFAULT_DROP_TARGET_STYLE,
         dropTargetClasses = [],
         autoAriaDisabled = false,
-        onActivate = undefined,
         keyboardDragTrigger = DEFAULT_KEYBOARD_DRAG_TRIGGER
     }) {
         config.items = [...items];
@@ -610,7 +599,6 @@ export function dndzone(node, options) {
         config.dropTargetStyle = dropTargetStyle;
         config.dropTargetClasses = dropTargetClasses;
         config.autoAriaDisabled = autoAriaDisabled;
-        config.onActivate = onActivate;
         config.keyboardDragTrigger = keyboardDragTrigger;
         if (config.type && newType !== config.type) {
             unregisterDropZone(node, config.type);

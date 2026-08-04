@@ -32,7 +32,9 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
     }
 
     function key(el, k) {
-        el.dispatchEvent(new KeyboardEvent("keydown", {key: k, bubbles: true, cancelable: true}));
+        const event = new KeyboardEvent("keydown", {key: k, bubbles: true, cancelable: true});
+        el.dispatchEvent(event);
+        return event;
     }
 
     // The board's tabindex map: one entry per card, in zone-append order.
@@ -242,20 +244,28 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
         });
     });
 
-    describe("onActivate", () => {
-        it("calls onActivate with the item id instead of grabbing", () => {
-            const activated = [];
+    // keyboardDragTrigger's own suite covers the option against the stock zone. What matters
+    // here is that this fork's roving-tabindex layer, which sits on top of the same
+    // handleKeyDown, does not re-claim a key the trigger has yielded.
+    describe("keyboardDragTrigger", () => {
+        it("leaves Enter completely untouched under the roving layer when the trigger is 'space'", () => {
             const {
                 zone,
                 children: [c0, c1]
-            } = createZone([{id: "a"}, {id: "b"}], {type: "board", onActivate: id => activated.push(id)});
+            } = createZone([{id: "a"}, {id: "b"}], {type: "board", keyboardDragTrigger: "space"});
             const considers = [];
             zone.addEventListener("consider", e => considers.push(e.detail.info.trigger));
+            const seenByConsumer = [];
+            zone.addEventListener("keydown", e => seenByConsumer.push(e));
 
-            key(c1, "Enter");
+            c1.focus();
+            const event = key(c1, "Enter");
 
-            expect(activated).to.deep.equal(["b"]);
             expect(considers, "Enter must not start a grab").to.be.empty;
+            expect(seenByConsumer, "the event must reach the consumer").to.have.lengthOf(1);
+            // The whole point of the option over a callback: the library does not consume the
+            // key, so the consumer's own handler and the element's default both still run.
+            expect(event.defaultPrevented, "Enter must not be preventDefault-ed").to.be.false;
 
             // Still at rest: ArrowDown navigates rather than reordering.
             key(c0, "ArrowDown");
@@ -263,7 +273,23 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
             expect(considers).to.be.empty;
         });
 
-        it("keeps the stock grab behavior on Enter when onActivate is absent", () => {
+        it("still grabs and drops on Space when the trigger is 'space'", () => {
+            const {
+                zone,
+                children: [c0]
+            } = createZone([{id: "a"}, {id: "b"}], {type: "board", keyboardDragTrigger: "space"});
+            const considers = [];
+            zone.addEventListener("consider", e => considers.push(e.detail.info.trigger));
+
+            c0.focus();
+            key(c0, " ");
+            expect(considers).to.deep.equal([TRIGGERS.DRAG_STARTED]);
+
+            key(c0, " ");
+            expect(considers).to.deep.equal([TRIGGERS.DRAG_STARTED, TRIGGERS.DRAG_STOPPED]);
+        });
+
+        it("keeps the stock grab behavior on Enter by default", () => {
             const {
                 zone,
                 children: [c0]
@@ -279,22 +305,23 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
             expect(considers).to.deep.equal([TRIGGERS.DRAG_STARTED, TRIGGERS.DRAG_STOPPED]);
         });
 
-        it("still grabs on Space when onActivate is supplied", () => {
-            const activated = [];
+        it("ignores Enter mid-grab when the trigger is 'space'", () => {
             const {
                 zone,
                 children: [c0]
-            } = createZone([{id: "a"}, {id: "b"}], {type: "board", onActivate: id => activated.push(id)});
+            } = createZone([{id: "a"}, {id: "b"}], {type: "board", keyboardDragTrigger: "space"});
             const considers = [];
             zone.addEventListener("consider", e => considers.push(e.detail.info.trigger));
 
             c0.focus();
             key(c0, " ");
             expect(considers).to.deep.equal([TRIGGERS.DRAG_STARTED]);
-            expect(activated, "Space must not activate").to.be.empty;
 
-            key(c0, " ");
-            expect(considers).to.deep.equal([TRIGGERS.DRAG_STARTED, TRIGGERS.DRAG_STOPPED]);
+            // Unlike the old onActivate seam, which gated on !isDragging and let Enter fall
+            // through to a drop, the trigger yields Enter unconditionally - the grab survives.
+            const event = key(c0, "Enter");
+            expect(considers, "Enter must not drop the grabbed card").to.deep.equal([TRIGGERS.DRAG_STARTED]);
+            expect(event.defaultPrevented).to.be.false;
         });
     });
 });

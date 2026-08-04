@@ -3,7 +3,12 @@
 **A living document.** Update it when a PR lands, when a decision changes, or when upstream
 answers something. It exists so nobody has to re-derive "what's left" from the diff again.
 
-Last updated: 2026-08-01, at `planafoot` = `9c66f71`.
+Last updated: 2026-08-04, when `planafoot` adopted `keyboardDragTrigger` and dropped `onActivate`.
+
+> **Consumer note.** planafoot the app is still pinned at `7855c822` and still passes
+> `onActivate`, which no longer exists. Until the app is updated it will log
+> `dndzone will ignore unknown options` and Enter will grab a card instead of opening it.
+> See `docs/superpowers/specs/2026-08-04-keyboard-drag-trigger-migration-design.md` §2–3.
 
 ## Layout
 
@@ -33,18 +38,31 @@ app, which installs a complete table once from the root layout.
 
 ## In flight
 
-### 1. `onActivate` (split Enter) — PR [#701](https://github.com/isaacHagoel/svelte-dnd-action/pull/701), open
+### 1. `keyboardDragTrigger` — PR [#702](https://github.com/isaacHagoel/svelte-dnd-action/pull/702), open
 
-Supplying `onActivate` hands _Enter_ to the consumer; _Space_ still grabs. Fully additive.
+`keyboardDragTrigger: "space" | "enter" | "space_or_enter"` (default `"space_or_enter"`) narrows
+which keys the library claims to start and stop a keyboard drag. Keys outside the trigger are
+left **completely** untouched — no `preventDefault`, no `stopPropagation`, no callback. Fully
+additive: the default is today's behaviour exactly.
 
-Evidence: **#511 is open** and asks for exactly this — @ulaas wants Enter to play the focused
-playlist item. Isaac twice said he is open to a PR. The strongest framing is that the reported
-workarounds (`tabindex="-1"` on everything plus custom listeners) are _less_ accessible than the
-library's own handling.
+Evidence: **#511 is open** and asks for Enter to activate rather than grab — @ulaas wants Enter
+to play the focused playlist item. Isaac twice said he is open to a PR. The strongest framing is
+that the reported workarounds (`tabindex="-1"` on everything plus custom listeners) are _less_
+accessible than the library's own handling.
 
-`planafoot` has already collapsed onto the submitted implementation (`9c66f71`), so when this
-merges the hunk skips by patch-id rather than conflicting, and `src/action.js` leaves the fork's
-delta entirely.
+**Supersedes PR #701 (`onActivate`), now closed.** That version answered #511 with a callback the
+zone invoked on Enter. Two reasons the option is the better ask:
+
+1. **Smaller surface.** A string that narrows which keys the library claims is a configuration
+   value. A callback is a new event surface the maintainer owns forever.
+2. **It yields the key completely.** `onActivate` still consumed the event and handed back an
+   item id, so the consumer got exactly one behaviour — "activate this item". Under the trigger,
+   Enter behaves as if the library were not installed, so a menu, a nested control's own
+   default, or anything else works too.
+
+`planafoot` has adopted the submitted implementation hunk-for-hunk, so when this merges the
+hunks skip by patch-id rather than conflicting. The fork's `onActivate` delta is gone entirely —
+`src/action.js`, `src/keyboardAction.js`, and `typings/index.d.ts` now carry only the option.
 
 ## Queued — do not start until #701 resolves
 

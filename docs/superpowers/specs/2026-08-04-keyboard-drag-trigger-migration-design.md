@@ -31,6 +31,14 @@ behavior). The fork and the app will use `"space"`.
 
 Three units of work, in order. Each is independently verifiable.
 
+> **Status, 2026-08-04.** Only unit 1 (the library) has been executed. Units 2 and 3 — the app's
+> zone option, Enter handler, aria string, and the pin bump — are deliberately deferred; the app
+> is still pinned at `7855c822` and still passes `onActivate`, which the library no longer
+> accepts. **The app is therefore broken against `planafoot` HEAD until unit 2 lands.** The
+> failure mode is silent, not loud: `validateOptions` warns `dndzone will ignore unknown options`
+> to the console and Enter reverts to grabbing the card. Units 2 and 3 below are the record of
+> what that integration needs.
+
 1. **Library** — merge `feat/keyboard-drag-trigger` into `planafoot`, then remove the
    `onActivate` delta.
 2. **App** — swap the zone option, move the Enter handler into `Lane.svelte`, fix the stale
