@@ -32,22 +32,24 @@ Keyboard dragging is untouched: the item under the tab stop is a normal, tabbabl
 - **It composes with `zoneItemTabIndex`** rather than overriding it — the active item gets its own zone's configured value, so `zoneItemTabIndex: 3` gives `[3, -1, -1]`.
 - **One new option**, and only `src/keyboardAction.js` gains behaviour. The diff against `master` removes five lines in total; everything else is additive.
 
-### The axes are inferred, not configured
+### One rule for the arrow keys
 
-A board of vertical lists side by side and a stack of horizontal lists invert both axes, so neither key pair can have a fixed job. Rather than add an `orientation` option, the axis is read off the layout:
+Lists side by side and lists stacked want opposite things from the same two key pairs, so neither pair can have a fixed job. Rather than add an `orientation` option or infer one from the layout, the rule is directional:
 
-- the axis the zones are separated along moves **between** zones
-- the perpendicular axis moves **within** a zone
-- with a single zone in the group there is no cross-zone axis, so both axes move within it — which also matches what you already do mid-drag, aliasing `ArrowRight`→`ArrowDown` so horizontal lists work
+> **Move to the zone in that direction if the group has one there; otherwise move within the current zone.**
+
+`ArrowRight` means "the zone to the right", and if there isn't one it means "the next item". That single rule covers every arrangement for the same reason: side-by-side lists have nothing below, so up/down walk the list; stacked lists have nothing to the right, so left/right walk the list; a grid of single-slot zones has a neighbour in every direction, so every arrow moves a slot. Nothing has to know what shape the layout is.
+
+Choosing the zone follows the approach [CSS Spatial Navigation](https://www.w3.org/TR/css-nav-1/) specifies — candidates must lie in the direction of travel, ones whose extent overlaps the source rank ahead of diagonal ones, and the nearest wins. Zones that are empty or `display: none` are skipped during selection, so an arrow looks past them rather than dying on one.
 
 `Home`/`End` go to the first/last item of the current zone, matching [the listbox pattern](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/#keyboardinteraction), where they move focus to the first/last option of that list rather than across lists.
 
 ### Known limits, all documented in the README
 
-- **This navigates lists, not grids.** Within a zone the arrow keys step in list order, which is the movement model the library already has — `swap(items, idx ± 1)` with both axes aliased to it — so a zone whose items wrap into a grid gets the same list-style movement at rest that it already gets while dragging. Between zones is the part that is new here, and it is the weaker half: a 2×2 arrangement gives both axes the same spread, so the inferred axis and the order zones are visited are both unreliable. Doing either properly means the APG grid pattern, which I think is a separate feature rather than something to fold in here.
+- **Within a zone, this navigates a list, not a grid.** The arrow keys step in list order, which is the movement model the library already has — `swap(items, idx ± 1)`, with both axes aliased to it — so a zone whose own items wrap into a grid gets the same list-style movement at rest that it already gets while dragging. Doing that properly means the APG grid pattern, which I think is a separate feature rather than something to fold in here.
+- Where multi-item zones are themselves arranged in 2-D, an arrow that has a zone in its direction leaves the current zone rather than moving within it. Grids of single-slot zones — the case this is most useful for — are unaffected.
 - A mistyped group name silently creates a second group. That is the cost of an explicit identifier.
-- Cross-zone movement is geometric while within-zone movement is DOM order, so RTL or reversed-flex layouts can make the two disagree.
-- Zone containers keep their own `zoneTabIndex` and so remain tab stops; the reduction is N items → 1, not the whole board → 1. Pass `zoneTabIndex: -1` for that.
+- Zone containers keep their own `zoneTabIndex` and so remain tab stops; the reduction is N items → 1, not the whole group → 1. Pass `zoneTabIndex: -1` for that.
 - A `dragDisabled` zone stays out of the group entirely — it has no key handling to move a tab stop off itself, so including it would make it a keyboard trap.
 - Keys pressed inside an item's own controls (input, textarea, select, link, button, contenteditable) are left to that control, mirroring what the space/enter handler already does.
 
@@ -55,6 +57,6 @@ One thing I want to be straight about rather than have you find it: the APG scop
 
 ### Tests
 
-49 cases in `cypress/integration/keyboardRovingTabindex.spec.js`, including explicit guards that behaviour is unchanged with the option absent, that a zone without a `tabGroup` is never touched or crossed into, that zones in different groups stay independent, that arrow reordering during a live drag still works with the option on, and that keys inside nested controls are left alone. Full suite green.
+58 cases in `cypress/integration/keyboardRovingTabindex.spec.js`, including explicit guards that behaviour is unchanged with the option absent, that a zone without a `tabGroup` is never touched or crossed into, that zones in different groups stay independent, that arrow reordering during a live drag still works with the option on, that keys inside nested controls are left alone, and that a 4x4 arrangement of zones navigates correctly in all four directions. Full suite green.
 
 Happy to change any of the naming, or to split this differently if you would rather take it in smaller pieces.
