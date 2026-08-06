@@ -67,35 +67,54 @@ page, including an unrelated sortable list, and could not be expressed per board
 did not opt in keeps upstream's per-item tab stops untouched, and arrow navigation does not cross
 into it. No zone can reach into a non-participating zone and rewrite its tabindexes.
 
-### 3. Arrow keys
+### 3. Arrow keys — axes inferred from how the zones are arranged
 
-At rest (`!isDragging`) in an opted-in zone:
+Neither axis can be assigned a fixed job. A kanban board is vertical lists arranged side by side;
+a stack of horizontal lists is the transpose, and **both axes invert at once**. Hardcoding
+"left/right hops zones" gets the second layout exactly backwards — `ArrowRight` would jump to the
+zone *below*, and `ArrowDown` would walk along a list that runs sideways.
 
-| Key            | Behaviour                                                                  |
-| -------------- | -------------------------------------------------------------------------- |
-| `ArrowDown`    | Focus the next item in this zone. Clamps at the last.                      |
-| `ArrowUp`      | Focus the previous item in this zone. Clamps at the first.                 |
-| `ArrowRight`   | Focus the same row in the next opted-in zone of the type. **Fallback:** if there is no such zone, focus the next item in this zone. |
-| `ArrowLeft`    | Mirror of `ArrowRight`.                                                    |
-| `Home` / `End` | Focus the first / last item **of this zone**.                              |
+So the mapping is derived, not fixed:
 
-The `ArrowRight`/`ArrowLeft` fallback is what makes one rule serve both layouts. A board gets 2D
-navigation. A lone horizontal list — where there is no adjacent zone — gets left/right moving along
-the list, which is what its users expect and which **mirrors what upstream already does mid-drag**
-(it aliases `ArrowRight`→`ArrowDown` and `ArrowLeft`→`ArrowUp` so horizontal lists work). No
-`orientation` option is needed, so the PR carries exactly one new option.
+> **The cross-zone axis is the axis the zones of the type are separated along. The within-zone axis
+> is the perpendicular one.**
 
-Cross-zone arrow movement is **not optional garnish**: with one tab stop for the whole board, it is
-the only way to reach a second lane. It ships with roving or roving is unusable.
+| Layout                              | Zones arranged | Cross-zone | Within-zone |
+| ----------------------------------- | -------------- | ---------- | ----------- |
+| Kanban — vertical lists side by side | horizontally   | `←` `→`    | `↑` `↓`     |
+| Stack of horizontal lists            | vertically     | `↑` `↓`    | `←` `→`     |
+| Single zone                          | *none*         | *none*     | both axes   |
 
-`Home`/`End` stay zone-scoped while arrows are board-scoped. This is deliberate, not an oversight:
-Home/End are list-relative in every APG listbox pattern, and a board-wide Home that silently jumped
-lanes would surprise. Documented as such.
+**Inference rule.** Across the opted-in zones of the type, compare the spread of `rect.left`
+against the spread of `rect.top` (using the rects already computed for ordering). The larger spread
+is the cross-zone axis; ties resolve to horizontal, matching the kanban default. Zones are ordered
+along that axis. Zones arranged in a 2D grid resolve to their dominant axis — imperfect, but
+deterministic and documented.
 
-### 4. Row preservation across lanes
+**The single-zone row is the general rule, not a special case.** With no second zone there is no
+cross-zone axis, so both axes move within the list — correct for a lone vertical *or* horizontal
+list, and it **mirrors what upstream already does mid-drag**, where `ArrowRight`→`ArrowDown` and
+`ArrowLeft`→`ArrowUp` are aliased precisely so horizontal lists work.
 
-`ArrowRight`/`ArrowLeft` preserve the row index, clamped to the target zone's item count. Moving
-from row 4 of a 5-item lane into a 2-item lane lands on row 2, not row 4.
+`Home` / `End` focus the first / last item **of the current zone**, on either layout.
+
+Two consequences worth stating plainly:
+
+- **No `orientation` option.** The layout already expresses its orientation; asking the consumer to
+  restate it in config invites the two to disagree, and a wrong value breaks navigation with no
+  visible cause. Inference is also self-correcting when a responsive layout reflows lanes from
+  side-by-side to stacked. The PR carries exactly one new option.
+- **Cross-zone movement is not optional garnish.** With one tab stop for the whole board it is the
+  only way to reach a second zone. It ships with roving, or roving is unusable.
+
+`Home`/`End` stay zone-scoped while arrows are board-scoped. Deliberate: Home/End are list-relative
+in every APG listbox pattern, and a board-wide Home that silently jumped zones would surprise.
+
+### 4. Position preservation across zones
+
+A cross-zone move preserves the item's index within its zone, clamped to the target zone's item
+count. Moving from position 4 of a 5-item zone into a 2-item zone lands on position 2, not 4. This
+holds on either axis.
 
 ### 5. Composition with `zoneItemTabIndex`
 
@@ -166,15 +185,20 @@ item 3's share of the diff.
 
 All in `src/keyboardAction.js`. Against upstream:
 
-1. Module-level `activeItemEl` pointer, plus helpers `orderedZonesOfType`, `setRovingTabindex`,
-   `focusCard`, `navigateToAdjacentLane`. Ported from the fork; `orderedZonesOfType` sorts zones of
-   a type by bounding rect, left-then-top.
-2. Split upstream's two aliased arrow cases into four independent cases, keeping the existing
+1. Module-level `activeItemEl` pointer, plus helpers `setRovingTabindex`, `focusCard`, and
+   `navigateToAdjacentZone`. Ported from the fork.
+2. **New, not in the fork:** `crossZoneAxis(type)`, returning `"x" | "y" | null` by comparing the
+   spread of zone `rect.left` against `rect.top` (null when fewer than two opted-in zones). The
+   fork's `orderedZonesOfType` becomes `orderedZonesOfType(type, axis)`, sorting along the inferred
+   axis rather than always left-then-top. Arrow dispatch consults the axis to decide whether a key
+   moves within the zone or across zones.
+3. Split upstream's two aliased arrow cases into four independent cases, keeping the existing
    `isDragging` bodies **byte-identical** and filling only the at-rest branch. Add `Home`/`End`.
-3. Gate every at-rest branch on the zone's `navigationMode === "roving"`.
-4. In `configure()`, branch the per-item tabindex line on `navigationMode`, and add the
+4. Gate every at-rest branch on the zone's `navigationMode === "roving"`.
+5. In `configure()`, branch the per-item tabindex line on `navigationMode`, and add the
    re-assertion block described in §6.
-5. `validateOptions` accepts `navigationMode`; typings gain the option; README documents it.
+6. `validateOptions` accepts `navigationMode`; typings gain the option; README documents it,
+   including the inferred-axis rule.
 
 `zoneHoldingItem` and the `grabIsLive`/`grabIsAlive` split stay in the fork — they serve items 2
 and 5 only.
@@ -187,13 +211,21 @@ re-assertion on update; fallback when the active item is removed; `zoneItemTabIn
 arrow navigation with clamping in all four directions; `Home`/`End`; and no `consider` events fired
 while navigating at rest.
 
+Note the fork's existing arrow tests assume the kanban layout, so they must be re-read as testing
+the *inferred* axis rather than a fixed one; the spec already lays its zones out side by side via
+`zoneStyle`.
+
 New tests this design requires beyond the fork's:
 
 - `navigationMode` absent → upstream tabindex behaviour is byte-for-byte unchanged (the
   no-regression guard, and the most important test in the PR).
 - Mixed opt-in: a non-participating zone of the same type keeps its per-item tab stops, and arrow
   navigation does not cross into it.
-- The `ArrowRight`/`ArrowLeft` fallback: with no adjacent zone, left/right move within the zone.
+- **Axis inference, all three layouts**: zones side by side → `←`/`→` cross zones and `↑`/`↓` move
+  within; zones stacked → `↑`/`↓` cross zones and `←`/`→` move within; a single zone → both axes
+  move within. The stacked case is the one the fork has never exercised and the one that motivated
+  the rule, so it gets the most cases.
+- Position preservation and clamping on a cross-zone move along **either** axis.
 
 ## Sequencing
 
