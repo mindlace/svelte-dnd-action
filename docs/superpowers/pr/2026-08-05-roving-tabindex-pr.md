@@ -42,8 +42,6 @@ Lists side by side and lists stacked want opposite things from the same two key 
 
 Choosing the zone follows the approach [CSS Spatial Navigation](https://www.w3.org/TR/css-nav-1/) specifies — candidates must lie in the direction of travel, ones whose extent overlaps the source rank ahead of diagonal ones, and the nearest wins. Zones that are empty or `display: none` are skipped during selection, so an arrow looks past them rather than dying on one.
 
-`Home`/`End` go to the first/last item of the current zone, matching [the listbox pattern](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/#keyboardinteraction), where they move focus to the first/last option of that list rather than across lists.
-
 ### Known limits, all documented in the README
 
 - **Within a zone, this navigates a list, not a grid.** The arrow keys step in list order, which is the movement model the library already has — `swap(items, idx ± 1)`, with both axes aliased to it — so a zone whose own items wrap into a grid gets the same list-style movement at rest that it already gets while dragging. Doing that properly means the APG grid pattern, which I think is a separate feature rather than something to fold in here.
@@ -53,10 +51,8 @@ Choosing the zone follows the approach [CSS Spatial Navigation](https://www.w3.o
 - A `dragDisabled` zone stays out of the group entirely — it has no key handling to move a tab stop off itself, so including it would make it a keyboard trap.
 - Keys pressed inside an item's own controls (input, textarea, select, link, button, contenteditable) are left to that control, mirroring what the space/enter handler already does.
 
-One thing I want to be straight about rather than have you find it: the APG scopes a roving tabindex to a single composite, and `role="list"`/`role="listitem"` are not composite roles. Spanning one tab stop across sibling zones is an extension of the pattern, not the pattern. I would not pitch this as an accessibility improvement — it is a tab-sequence fix that preserves the accessibility behaviour you already have.
-
 ### Tests
 
-58 cases in `cypress/integration/keyboardRovingTabindex.spec.js`, including explicit guards that behaviour is unchanged with the option absent, that a zone without a `tabGroup` is never touched or crossed into, that zones in different groups stay independent, that arrow reordering during a live drag still works with the option on, that keys inside nested controls are left alone, and that a 4x4 arrangement of zones navigates correctly in all four directions. Full suite green.
+54 cases in `cypress/integration/keyboardRovingTabindex.spec.js`, including explicit guards that behaviour is unchanged with the option absent, that a zone without a `tabGroup` is never touched or crossed into, that zones in different groups stay independent, that arrow reordering during a live drag still works with the option on, that keys inside nested controls are left alone, and that a 4x4 arrangement of zones navigates correctly in all four directions. Full suite green.
 
 Happy to change any of the naming, or to split this differently if you would rather take it in smaller pieces.
