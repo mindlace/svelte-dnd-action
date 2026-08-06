@@ -44,8 +44,8 @@ A board of vertical lists side by side and a stack of horizontal lists invert bo
 
 ### Known limits, all documented in the README
 
-- A mistyped group name silently creates a second group. That is the cost of an explicit identifier; I think it is the right trade against inferring the grouping from something that means another thing.
-- The axis inference assumes the zones of a group form a single row or a single column. A 2×2 grid of zones resolves to an arbitrary axis.
+- **This navigates lists, not grids**, in both directions. Within a zone the arrow keys step through items in DOM order, so a zone whose items wrap into a grid gets list-style movement — `ArrowDown` goes to the next item, not the one visually below. Between zones, a 2×2 arrangement gives both axes the same spread, so the inferred axis and the visiting order are both unreliable. Doing this properly means the APG grid pattern, which I think is a separate feature rather than something to fold in here.
+- A mistyped group name silently creates a second group. That is the cost of an explicit identifier.
 - Cross-zone movement is geometric while within-zone movement is DOM order, so RTL or reversed-flex layouts can make the two disagree.
 - Zone containers keep their own `zoneTabIndex` and so remain tab stops; the reduction is N items → 1, not the whole board → 1. Pass `zoneTabIndex: -1` for that.
 - A `dragDisabled` zone stays out of the group entirely — it has no key handling to move a tab stop off itself, so including it would make it a keyboard trap.
