@@ -537,21 +537,14 @@ Add next to `swap()` (~line 224):
     // With no second zone there is no cross-zone axis, so both axes move within.
     function navigateAtRest(currentCard, keyAxis, dir) {
         const {axis} = orderedRovingZones(config.type);
-        if (axis === keyAxis) {
-            moveAcrossZones(currentCard, dir);
-            return;
-        }
+        if (axis === keyAxis) return;
         moveWithinZone(currentCard, dir);
     }
 ```
 
-`moveAcrossZones` lands in Task 5. For this task, add a temporary stub immediately above `navigateAtRest` so the suite runs:
-
-```js
-    function moveAcrossZones() {
-        // implemented in Task 5
-    }
-```
+Cross-zone movement lands in Task 5, which replaces that bare `return` with a call to
+`moveAcrossZones`. Until then a key on the cross-zone axis correctly does nothing, which is what
+this task's tests assert — **no placeholder function is needed, and none should be written.**
 
 - [ ] **Step 4: Split the arrow cases**
 
@@ -679,9 +672,20 @@ git commit -m "feat: navigate within a zone with the arrow keys at rest"
 - [ ] **Step 2: Run the tests and verify they fail**
 
 Run: `npx cypress run --spec "cypress/integration/keyboardRovingTabindex.spec.js"`
-Expected: FAIL — `moveAcrossZones` is a no-op stub, so focus never leaves the starting zone. The last two tests should already PASS.
+Expected: FAIL — `navigateAtRest` returns without moving on the cross-zone axis, so focus never leaves the starting zone. The last two tests should already PASS.
 
-- [ ] **Step 3: Replace the stub**
+- [ ] **Step 3: Add `moveAcrossZones` and call it from `navigateAtRest`**
+
+Replace `if (axis === keyAxis) return;` in `navigateAtRest` with:
+
+```js
+        if (axis === keyAxis) {
+            moveAcrossZones(currentCard, dir);
+            return;
+        }
+```
+
+Then add the function itself next to `moveWithinZone`:
 
 ```js
     // Move to the same position in the adjacent zone along the cross-zone axis, clamped to
