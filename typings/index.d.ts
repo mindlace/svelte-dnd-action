@@ -68,12 +68,6 @@ export interface Options<T extends Item = Item> {
      * Use cursor position instead of dragged element center for drop zone detection
      */
     useCursorForDetection?: boolean;
-    /**
-     * Which key(s) on a focused item start and stop a keyboard drag. Keys outside the trigger are
-     * left completely untouched (no preventDefault/stopPropagation), so the app can use them -
-     * ex: "space" keeps Enter free to activate the focused item. Defaults to "space_or_enter".
-     */
-    keyboardDragTrigger?: "space" | "enter" | "space_or_enter";
 }
 
 export interface DndZoneAttributes<T> {
@@ -100,7 +94,7 @@ export interface AriaStrings {
     dropped?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
     /** Escape. Separate from `dropped` so a cancel can be worded differently from a commit. */
     cancelled?: (ctx: {itemLabel: string; zoneLabel: string; position: number; count: number}) => string;
-    zoneActiveInstruction?: string;
+    zoneActiveInstruction?: string | ((ctx: {keyboardDragTrigger: "space" | "enter" | "space_or_enter"}) => string);
     zoneDragDisabledInstruction?: string;
 }
 
@@ -112,6 +106,15 @@ export interface AriaStrings {
  * Pass null to restore the built-in English strings.
  */
 export declare function setAriaStrings(overrides: AriaStrings | null): void;
+
+/**
+ * Chooses which key(s) start and stop a keyboard drag on a focused item. Keys outside the trigger are left
+ * completely untouched by the library, so the app can use them - ex: "space" keeps Enter free to activate the
+ * focused item. This is global and applies to all dndzones. It can be called at any time.
+ * Pass null or undefined (or call with no argument) to restore the default, "space_or_enter".
+ * @throws {Error} if given anything other than the documented values, null, or undefined
+ */
+export declare function setKeyboardDragTrigger(trigger?: "space" | "enter" | "space_or_enter" | null): void;
 
 /**
  * Allows using another key instead of "id" in the items data. This is global and applies to all dndzones.
