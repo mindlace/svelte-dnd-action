@@ -1,0 +1,212 @@
+# Roving tabindex + at-rest navigation — upstream PR design
+
+Answers upstream **issue [#460](https://github.com/isaacHagoel/svelte-dnd-action/issues/460)**,
+"Remove tabindex of DndZone items", with code. Roadmap item 3.
+
+Status: **design, pre-implementation.** Ethan reviews before any PR is opened.
+
+## The problem, in the reporters' words
+
+`@iyj6707` opened #460 wanting item tabindex gone so Tab would reach the next text box.
+`@gyurielf` reframed it in the form that matches ours:
+
+> I have a button, which is a child of the dnd zone item... when I tabulate it jumps to the dnd
+> item first (since it has tabindex=0 by default) then the next tab will jump to the button.
+
+Isaac replied with the constraint any answer must satisfy —
+
+> The draggable item itself has to be tabbable for accessibility (to allow keyboard based drag
+> and drop).
+
+— and then asked:
+
+> how can it be avoided if we want to support keyboard dnd?
+
+**That question is the last comment on the thread.** Nobody answered it; the issue went quiet and
+was closed. This PR is the answer.
+
+The answer is the WAI-ARIA composite-widget pattern: keep every item tabbable, but expose only
+**one** of them to the Tab sequence at a time, and navigate between them with the arrow keys.
+Both constraints hold simultaneously. N items become 1 tab stop, and keyboard drag still works
+because the item under focus is still a real, tabbable, grabbable item.
+
+## Two acceptance criteria
+
+1. **Palatable given Isaac's stated concerns.** No behaviour change for anyone who does not opt
+   in; satisfies his tabbability constraint; small surface.
+2. **planafoot consumes it as-is** once upstreamed — configuration only, no wrapper re-implementing
+   navigation, no patch-level shim.
+
+Criterion 2 is what forces the scope decision below. Getting it wrong means the fork survives.
+
+## Design decisions
+
+### 1. Scope: one tab stop per **type**, not per zone
+
+A board is several zones sharing a `type`. The tab stop is board-wide: exactly one item across
+every opted-in zone of the type is tabbable.
+
+Rationale: **upstream already treats a type as one drag universe** — Tab moves a live grab between
+zones of a type. Navigation adopting the scope dragging already has is the coherent position.
+
+This also *is* the single-zone answer, not a superset of it. A lone list is the degenerate case:
+one zone of a type yields one tab stop, which is exactly what #460 asks for. There is no separate
+"in-zone" feature to build.
+
+### 2. Opt-in: a per-zone `navigationMode` option
+
+```js
+navigationMode: "roving" | "default"; // default: "default"
+```
+
+Per-zone, not a global setter. Every other tabindex behaviour upstream is already a per-zone
+option (`zoneTabIndex`, `zoneItemTabIndex`); a global would force roving onto every type on the
+page, including an unrelated sortable list, and could not be expressed per board.
+
+**Mixed opt-in is predictable.** A zone governs its own items' tabindex. A zone of the type that
+did not opt in keeps upstream's per-item tab stops untouched, and arrow navigation does not cross
+into it. No zone can reach into a non-participating zone and rewrite its tabindexes.
+
+### 3. Arrow keys
+
+At rest (`!isDragging`) in an opted-in zone:
+
+| Key            | Behaviour                                                                  |
+| -------------- | -------------------------------------------------------------------------- |
+| `ArrowDown`    | Focus the next item in this zone. Clamps at the last.                      |
+| `ArrowUp`      | Focus the previous item in this zone. Clamps at the first.                 |
+| `ArrowRight`   | Focus the same row in the next opted-in zone of the type. **Fallback:** if there is no such zone, focus the next item in this zone. |
+| `ArrowLeft`    | Mirror of `ArrowRight`.                                                    |
+| `Home` / `End` | Focus the first / last item **of this zone**.                              |
+
+The `ArrowRight`/`ArrowLeft` fallback is what makes one rule serve both layouts. A board gets 2D
+navigation. A lone horizontal list — where there is no adjacent zone — gets left/right moving along
+the list, which is what its users expect and which **mirrors what upstream already does mid-drag**
+(it aliases `ArrowRight`→`ArrowDown` and `ArrowLeft`→`ArrowUp` so horizontal lists work). No
+`orientation` option is needed, so the PR carries exactly one new option.
+
+Cross-zone arrow movement is **not optional garnish**: with one tab stop for the whole board, it is
+the only way to reach a second lane. It ships with roving or roving is unusable.
+
+`Home`/`End` stay zone-scoped while arrows are board-scoped. This is deliberate, not an oversight:
+Home/End are list-relative in every APG listbox pattern, and a board-wide Home that silently jumped
+lanes would surprise. Documented as such.
+
+### 4. Row preservation across lanes
+
+`ArrowRight`/`ArrowLeft` preserve the row index, clamped to the target zone's item count. Moving
+from row 4 of a 5-item lane into a 2-item lane lands on row 2, not row 4.
+
+### 5. Composition with `zoneItemTabIndex`
+
+The active item receives **its own zone's configured `zoneItemTabIndex`**, not a hardcoded `0`;
+every other item in an opted-in zone gets `-1`. So `zoneItemTabIndex: 3` yields `[3, -1, -1]`.
+
+This matters for palatability: silently overriding a documented option would be a near-automatic
+rejection, and this pre-empts it.
+
+### 6. Lifecycle: the tab stop survives re-renders
+
+The active item is re-asserted on every `configure()`, so a consumer `$effect` or a list re-render
+cannot leave the board with zero tab stops or several. Rules:
+
+- If the previously active item is still contained by an opted-in zone of the type, keep it.
+- Otherwise fall back to the first item of the first opted-in zone of the type that has items.
+- If the type has no items at all, there is no tab stop.
+
+After a drop, upstream already calls `triggerAllDzsUpdate()`, so this runs then too and the dragged
+item retains focus.
+
+### 7. Silent
+
+At-rest navigation makes **no screen-reader announcements**. The newly focused item is read by the
+screen reader because it is focused; announcing on top of that would double-speak. No new aria
+string keys, so `setAriaStrings` and `src/helpers/aria.js` are untouched by this PR.
+
+## What this PR does NOT contain
+
+Deliberately excluded, and none of it is load-bearing for the above:
+
+- **Item 2** — Escape cancel-to-origin, the `cancelled` key.
+- **Item 4** — tentative-until-drop, `pendingMove`, `handleDrop`'s commit flag. **Drag semantics are
+  entirely unchanged: every keyboard move still finalizes immediately**, preserving the no-limbo
+  guarantee Isaac defended in #321.
+- **Item 5** — cross-lane arrow move *during a grab*, the `movedToZone` key.
+
+Verified orthogonal: every at-rest path is gated on `!isDragging`, and none of it reads or writes
+`pendingMove`, `grabOrigin`, or the commit flag. The entanglement in `keyboardAction.js` is textual
+adjacency, not data flow.
+
+## Why this should be palatable
+
+- **Zero behaviour change when the option is absent.** At rest, upstream's arrow handlers currently
+  begin `if (!isDragging) return;` — they do nothing. We fill a branch that is empty today. With
+  `navigationMode` unset, `configure()` keeps upstream's `isDragging ? -1 : zoneItemTabIndex` line
+  verbatim.
+- **It satisfies his stated constraint.** Every item stays tabbable; only Tab *exposure* changes.
+- **It extends a behaviour he already ships.** Upstream already runs a roving tabindex *during* a
+  drag: `isDragging ? -1 : …` plus keeping the grabbed item tabbable means exactly one item is
+  tabbable mid-drag. This applies the same idea at rest.
+- **It answers an open question on a dead thread**, rather than reopening a settled debate.
+- **Small surface**: one new option, one new value.
+
+## planafoot adoption (criterion 2)
+
+Adding `navigationMode: "roving"` to each lane's `dndzone` config. That is the entire change — no
+wrapper, no shim.
+
+The fork's two hard constraints are met by the feature as specified: `docs/manual/shortcuts.svx`
+promises "Tab in, Tab out; the board never traps your focus" (one tab stop per board ✓), and cards
+containing their own buttons no longer multiply tab stops (✓).
+
+**This does not by itself retire the fork** — items 2, 4 and 5 keep `planafoot` alive. It removes
+item 3's share of the diff.
+
+## Implementation sketch
+
+All in `src/keyboardAction.js`. Against upstream:
+
+1. Module-level `activeItemEl` pointer, plus helpers `orderedZonesOfType`, `setRovingTabindex`,
+   `focusCard`, `navigateToAdjacentLane`. Ported from the fork; `orderedZonesOfType` sorts zones of
+   a type by bounding rect, left-then-top.
+2. Split upstream's two aliased arrow cases into four independent cases, keeping the existing
+   `isDragging` bodies **byte-identical** and filling only the at-rest branch. Add `Home`/`End`.
+3. Gate every at-rest branch on the zone's `navigationMode === "roving"`.
+4. In `configure()`, branch the per-item tabindex line on `navigationMode`, and add the
+   re-assertion block described in §6.
+5. `validateOptions` accepts `navigationMode`; typings gain the option; README documents it.
+
+`zoneHoldingItem` and the `grabIsLive`/`grabIsAlive` split stay in the fork — they serve items 2
+and 5 only.
+
+## Test plan
+
+Port the fork's `keyboardRovingTabindex.spec.js` (15 tests, all passing, no dependency on items
+2/4/5), adapted to set the option. Coverage: one tab stop per type; type boundary isolation;
+re-assertion on update; fallback when the active item is removed; `zoneItemTabIndex` composition;
+arrow navigation with clamping in all four directions; `Home`/`End`; and no `consider` events fired
+while navigating at rest.
+
+New tests this design requires beyond the fork's:
+
+- `navigationMode` absent → upstream tabindex behaviour is byte-for-byte unchanged (the
+  no-regression guard, and the most important test in the PR).
+- Mixed opt-in: a non-participating zone of the same type keeps its per-item tab stops, and arrow
+  navigation does not cross into it.
+- The `ArrowRight`/`ArrowLeft` fallback: with no adjacent zone, left/right move within the zone.
+
+## Sequencing
+
+The roadmap says to open a discussion issue on #460 before building. Ethan's call is to **answer
+with code instead** — the thread died on an unanswered question, and a working implementation is a
+better answer than another question. Build it, then decide at review whether the PR opens cold or
+is preceded by a comment on #460.
+
+## Open questions
+
+- Does the PR restore focus to the active item after a drop, or leave upstream's focus handling
+  alone? The fork sets `activeItemEl` to the dragged item in `configure()`; confirm this matches
+  upstream's post-drop focus behaviour rather than fighting it.
+- `navigationMode: "roving" | "default"` as strings, or a boolean `rovingTabIndex`? Strings leave
+  room for future modes; a boolean is smaller. Leaning strings, matching `keyboardDragTrigger`'s
+  precedent of a named-value option.
