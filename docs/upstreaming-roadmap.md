@@ -3,12 +3,18 @@
 **A living document.** Update it when a PR lands, when a decision changes, or when upstream
 answers something. It exists so nobody has to re-derive "what's left" from the diff again.
 
-Last updated: 2026-08-04, when `planafoot` adopted `keyboardDragTrigger` and dropped `onActivate`.
+Last updated: 2026-08-05, when `keyboardDragTrigger` merged upstream (#702, in v0.9.78) and
+`planafoot` merged v0.9.78.
 
 > **Consumer note.** planafoot the app is still pinned at `7855c822` and still passes
 > `onActivate`, which no longer exists. Until the app is updated it will log
 > `dndzone will ignore unknown options` and Enter will grab a card instead of opening it.
-> See `docs/superpowers/specs/2026-08-04-keyboard-drag-trigger-migration-design.md` §2–3.
+>
+> The fix is **no longer a per-zone option** — upstream reworked the feature into a global
+> setter before merging. The app must call `setKeyboardDragTrigger("space")` once from the root
+> layout (next to its existing `setAriaStrings` call) and drop `onActivate` from every `dndzone`.
+> See `docs/superpowers/specs/2026-08-04-keyboard-drag-trigger-migration-design.md` §2–3, whose
+> per-zone-option shape is now superseded.
 
 ## Layout
 
@@ -36,9 +42,7 @@ the current table, so a call describes a whole locale and anything it omits reve
 `planafoot` adopted upstream's semantics in the v0.9.77 merge. This is a no-op for planafoot the
 app, which installs a complete table once from the root layout.
 
-## In flight
-
-### 1. `keyboardDragTrigger` — PR [#702](https://github.com/isaacHagoel/svelte-dnd-action/pull/702), open
+### 1. `keyboardDragTrigger` — merged as upstream [#702](https://github.com/isaacHagoel/svelte-dnd-action/pull/702) (in v0.9.78)
 
 `keyboardDragTrigger: "space" | "enter" | "space_or_enter"` (default `"space_or_enter"`) narrows
 which keys the library claims to start and stop a keyboard drag. Keys outside the trigger are
@@ -60,13 +64,28 @@ zone invoked on Enter. Two reasons the option is the better ask:
    Enter behaves as if the library were not installed, so a menu, a nested control's own
    default, or anything else works too.
 
-`planafoot` has adopted the submitted implementation hunk-for-hunk, so when this merges the
-hunks skip by patch-id rather than conflicting. The fork's `onActivate` delta is gone entirely —
-`src/action.js`, `src/keyboardAction.js`, and `typings/index.d.ts` now carry only the option.
+**What upstream changed before merging.** He took the behaviour but not the shape: it became a
+**global** `setKeyboardDragTrigger(trigger)` in a new `src/keyboardDragTrigger.js` rather than a
+per-zone `dndzone` option, and he made `zoneActiveInstruction` **trigger-aware** — it is now a
+function receiving `{keyboardDragTrigger}`, so the spoken instruction names the right key. That
+in turn split `setAriaStrings`' validation into three key lists (function-only, string-or-function,
+string-only).
 
-## Queued — do not start until #701 resolves
+Two lessons for the queue below, both about *shape*:
 
-### 2. Escape cancel-to-origin + the `cancelled` aria key
+1. **He prefers a global setter to a per-zone option** for anything that is a policy rather than
+   a per-list fact. Item 3's `navigationMode` should be pitched that way, not as a zone option.
+2. **He follows the feature through to the announcements.** A PR that adds a behaviour without
+   updating what the screen reader says about it is half a PR to him.
+
+`planafoot` merged v0.9.78 and now carries **zero** delta on the feature — `src/action.js`,
+`src/index.js`, `src/constants.js`, and `src/keyboardDragTrigger.js` are byte-identical to
+upstream. The only fork delta left in the aria layer is its two extra string keys (`cancelled`,
+`movedToZone`) layered onto upstream's key lists.
+
+## Queued
+
+### 2. Escape cancel-to-origin + the `cancelled` aria key — **next up**
 
 Restore the card to where it was lifted, announce the cancel, end the grab without committing.
 
