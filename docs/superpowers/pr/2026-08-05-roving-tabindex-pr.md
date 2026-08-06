@@ -12,7 +12,9 @@ This is an attempt at that answer. It keeps every item tabbable and changes only
 
 ### What it does
 
-A new per-zone option, `navigationMode: "roving"`. When set, all the opted-in zones of a `type` share a **single item tab stop** between them instead of one per item, and the arrow keys move it. That is the WAI-ARIA composite-widget pattern: one tab stop into the widget, arrow keys within it.
+A new per-zone option, `navigationMode: "roving"`. When set, all the opted-in zones of a `type` share a **single item tab stop** between them instead of one per item, and the arrow keys move it.
+
+This is the technique the ARIA Authoring Practices Guide calls [managing focus within components using a roving tabindex](https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/#kbd_roving_tabindex), applied to a composite — "a discrete UI component that contains multiple focusable elements" — where "the tab and shift + tab keys move focus from one UI component to another while other keys, primarily the arrow keys, move focus inside of components". Concretely: the item in the tab sequence has the zone's `zoneItemTabIndex`, every other item has `tabindex="-1"`, and an arrow key swaps which one that is.
 
 So @gyurielf's case in #460 —
 
@@ -44,7 +46,7 @@ A board of vertical lists side by side and a stack of horizontal lists invert bo
 - the perpendicular axis moves **within** a zone
 - with a single zone there's no cross-zone axis, so both axes move within it — which also matches what you already do mid-drag, aliasing `ArrowRight`→`ArrowDown` so horizontal lists work
 
-`Home`/`End` go to the first/last item of the current zone, matching the APG listbox pattern.
+`Home`/`End` go to the first/last item of the current zone, matching [the listbox pattern](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/#keyboardinteraction), where they move focus to the first/last option of that list rather than across lists.
 
 ### Known limits, documented in the README
 
