@@ -1,5 +1,6 @@
 import {dndzone} from "../../src/keyboardAction";
 import {TRIGGERS} from "../../src/constants";
+import {setKeyboardDragTrigger} from "../../src/keyboardDragTrigger";
 
 describe("keyboardAction at-rest navigation and roving tabindex", () => {
     const actions = [];
@@ -48,6 +49,9 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
             .reverse()
             .forEach(action => action.destroy());
         zones.splice(0).forEach(zone => zone.remove());
+        // The drag trigger is global module state, so a test that narrows it would otherwise
+        // leak into every test after it — in this spec and in whichever spec runs next.
+        setKeyboardDragTrigger(null);
     });
 
     describe("roving tabindex", () => {
@@ -244,15 +248,16 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
         });
     });
 
-    // keyboardDragTrigger's own suite covers the option against the stock zone. What matters
+    // keyboardDragTrigger's own suite covers the setting against the stock zone. What matters
     // here is that this fork's roving-tabindex layer, which sits on top of the same
     // handleKeyDown, does not re-claim a key the trigger has yielded.
     describe("keyboardDragTrigger", () => {
         it("leaves Enter completely untouched under the roving layer when the trigger is 'space'", () => {
+            setKeyboardDragTrigger("space");
             const {
                 zone,
                 children: [c0, c1]
-            } = createZone([{id: "a"}, {id: "b"}], {type: "board", keyboardDragTrigger: "space"});
+            } = createZone([{id: "a"}, {id: "b"}], {type: "board"});
             const considers = [];
             zone.addEventListener("consider", e => considers.push(e.detail.info.trigger));
             const seenByConsumer = [];
@@ -274,10 +279,11 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
         });
 
         it("still grabs and drops on Space when the trigger is 'space'", () => {
+            setKeyboardDragTrigger("space");
             const {
                 zone,
                 children: [c0]
-            } = createZone([{id: "a"}, {id: "b"}], {type: "board", keyboardDragTrigger: "space"});
+            } = createZone([{id: "a"}, {id: "b"}], {type: "board"});
             const considers = [];
             zone.addEventListener("consider", e => considers.push(e.detail.info.trigger));
 
@@ -306,10 +312,11 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
         });
 
         it("ignores Enter mid-grab when the trigger is 'space'", () => {
+            setKeyboardDragTrigger("space");
             const {
                 zone,
                 children: [c0]
-            } = createZone([{id: "a"}, {id: "b"}], {type: "board", keyboardDragTrigger: "space"});
+            } = createZone([{id: "a"}, {id: "b"}], {type: "board"});
             const considers = [];
             zone.addEventListener("consider", e => considers.push(e.detail.info.trigger));
 

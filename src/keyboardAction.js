@@ -93,8 +93,15 @@ function globalKeyDownHandler(e) {
             // an intervening committed move + re-render can leave the module's
             // focusedDz pointer stale, which would make relocateToZone splice from
             // the wrong (empty) origin and silently no-op.
-            const liveDz = draggedItemType ? zoneHoldingItem(draggedItemType, focusedItemId) : null;
-            if (liveDz) focusedDz = liveDz;
+            // Only when the pointer is actually stale: zoneHoldingItem answers with the
+            // FIRST zone of the type holding the id, so consulting it while focusedDz is
+            // still live can drag the grab into a different zone. That only bites when two
+            // zones of a type hold the same id — which the library forbids, but which a
+            // consumer mid-teardown (or a test that leaks a zone) can transiently present.
+            if (!grabIsLive()) {
+                const liveDz = draggedItemType ? zoneHoldingItem(draggedItemType, focusedItemId) : null;
+                if (liveDz) focusedDz = liveDz;
+            }
             // The card is in no zone at all: there is no move left to restore. The silence
             // that follows is deliberate, not an oversight — with no move left to cancel,
             // no announcement is made. End the grab the way a cancel does — `commit: false`,
