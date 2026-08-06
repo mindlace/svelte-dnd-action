@@ -44,7 +44,7 @@ A board of vertical lists side by side and a stack of horizontal lists invert bo
 
 ### Known limits, all documented in the README
 
-- **This navigates lists, not grids**, in both directions. Within a zone the arrow keys step through items in DOM order, so a zone whose items wrap into a grid gets list-style movement — `ArrowDown` goes to the next item, not the one visually below. Between zones, a 2×2 arrangement gives both axes the same spread, so the inferred axis and the visiting order are both unreliable. Doing this properly means the APG grid pattern, which I think is a separate feature rather than something to fold in here.
+- **This navigates lists, not grids.** Within a zone the arrow keys step in list order, which is the movement model the library already has — `swap(items, idx ± 1)` with both axes aliased to it — so a zone whose items wrap into a grid gets the same list-style movement at rest that it already gets while dragging. Between zones is the part that is new here, and it is the weaker half: a 2×2 arrangement gives both axes the same spread, so the inferred axis and the order zones are visited are both unreliable. Doing either properly means the APG grid pattern, which I think is a separate feature rather than something to fold in here.
 - A mistyped group name silently creates a second group. That is the cost of an explicit identifier.
 - Cross-zone movement is geometric while within-zone movement is DOM order, so RTL or reversed-flex layouts can make the two disagree.
 - Zone containers keep their own `zoneTabIndex` and so remain tab stops; the reduction is N items → 1, not the whole board → 1. Pass `zoneTabIndex: -1` for that.
