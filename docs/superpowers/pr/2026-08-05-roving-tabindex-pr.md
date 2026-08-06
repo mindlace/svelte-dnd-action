@@ -32,16 +32,6 @@ Keyboard dragging is untouched: the item under the tab stop is a normal, tabbabl
 - **It composes with `zoneItemTabIndex`** rather than overriding it — the active item gets its own zone's configured value, so `zoneItemTabIndex: 3` gives `[3, -1, -1]`.
 - **One new option**, and only `src/keyboardAction.js` gains behaviour. The diff against `master` removes five lines in total; everything else is additive.
 
-### Grouping is declared, not inferred from `type`
-
-I first scoped this to `type`, on the reasoning that a type is already the unit a keyboard drag moves through. That was wrong, and worth explaining because it is the kind of thing you would have caught anyway:
-
-`type` is optional and defaults to `"--any--"` — by your own README, "by default, all dnd-zones have the same type". So two unrelated lists that both opt in and both omit `type` would silently share one tab stop and arrow-navigate into each other across the page. The only escape would be to invent a `type` purely to fix focus grouping, which changes what the zones can exchange as a side effect.
-
-Drag compatibility and focus grouping are different concerns, so `tabGroup` is its own identifier. Zones of different types may share a group; zones of the same type need not. Presence of the option is the entire opt-in, so there is one thing to declare and one behaviour it produces.
-
-Cross-zone movement is not a bonus feature here: with one tab stop for a whole group, it is the only way to reach a second zone in it.
-
 ### The axes are inferred, not configured
 
 A board of vertical lists side by side and a stack of horizontal lists invert both axes, so neither key pair can have a fixed job. Rather than add an `orientation` option, the axis is read off the layout:
@@ -65,6 +55,6 @@ One thing I want to be straight about rather than have you find it: the APG scop
 
 ### Tests
 
-49 cases in `cypress/integration/keyboardRovingTabindex.spec.js`, including explicit guards that behaviour is unchanged with the option absent, that a zone without a `tabGroup` is never touched or crossed into, that zones in different groups stay independent, that zones of different types in one group do share, that arrow reordering during a live drag still works with the option on, and that keys inside nested controls are left alone. Full suite green.
+49 cases in `cypress/integration/keyboardRovingTabindex.spec.js`, including explicit guards that behaviour is unchanged with the option absent, that a zone without a `tabGroup` is never touched or crossed into, that zones in different groups stay independent, that arrow reordering during a live drag still works with the option on, and that keys inside nested controls are left alone. Full suite green.
 
 Happy to change any of the naming, or to split this differently if you would rather take it in smaller pieces.
