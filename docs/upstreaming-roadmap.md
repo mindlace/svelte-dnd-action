@@ -97,6 +97,23 @@ words: _"It should be possible and not difficult to make 'esc' (optionally i gue
 Does **not** depend on item 4. Under upstream's finalize-per-step model a restore is just a real
 move backward, which is still correct.
 
+> **Deprioritized 2026-08-05 — this is upstream-only work the fork cannot consume.**
+>
+> Our Escape code does not port. It relocates to the origin **only when the grab crossed zones**
+> and leaves the rest to `handleDrop(…, commit: false)` — correct only because item 4 makes every
+> grab step tentative, so a within-zone reorder was never committed. Upstream commits each step,
+> so the same code there would revert to the right zone at the wrong index.
+>
+> Isaac also named the implementation he wants, and it is not ours: _"The lib could keep a copy
+> of all lists when the user enters keyboard drag mode and have 'esc' revert to that state."_
+> Snapshot-and-restore fits his finalize-per-step model and needs no tentative layer — but the
+> fork already cancels correctly via `commit: false` and would adopt none of it.
+>
+> So this is a from-scratch PR that shares one string key (`cancelled`) with our diff and returns
+> nothing to planafoot. Worth doing for #321, but it is not "the next chunk of our diff" and
+> should not be sequenced as if it were. **Item 3 is the better next move**: real fork code, a
+> live issue (#460), and an open question from Isaac to answer.
+
 ### 3. Roving tabindex + at-rest 2D navigation + Home/End
 
 One tab stop per board instead of one per card, arrows for 2D movement.
