@@ -234,11 +234,13 @@ with code instead** — the thread died on an unanswered question, and a working
 better answer than another question. Build it, then decide at review whether the PR opens cold or
 is preceded by a comment on #460.
 
-## Open questions
+## Resolved during planning
 
-- Does the PR restore focus to the active item after a drop, or leave upstream's focus handling
-  alone? The fork sets `activeItemEl` to the dragged item in `configure()`; confirm this matches
-  upstream's post-drop focus behaviour rather than fighting it.
-- `navigationMode: "roving" | "default"` as strings, or a boolean `rovingTabIndex`? Strings leave
-  room for future modes; a boolean is smaller. Leaning strings, matching `keyboardDragTrigger`'s
-  precedent of a named-value option.
+- **Post-drop focus.** The PR must point `activeItemEl` at the grabbed item's replacement node
+  during `configure()`. `handleDrop` ends with `triggerAllDzsUpdate()`, so `configure()` runs on
+  the drop; without this the fallback cannot find the pre-drag element after the consumer
+  re-renders and hands the board's tab stop back to the **first** item — dropping a card would
+  silently throw focus to the top of the board. Covered by plan Task 7.
+- **Option shape.** `navigationMode: "default" | "roving"`, a named-value string rather than a
+  boolean `rovingTabIndex`, matching `keyboardDragTrigger`'s precedent and leaving room for future
+  modes without a second option.
