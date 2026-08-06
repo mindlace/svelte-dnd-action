@@ -118,10 +118,21 @@ move backward, which is still correct.
 
 One tab stop per board instead of one per card, arrows for 2D movement.
 
-Evidence: **#460** is the tab-stop-explosion complaint — @gyurielf: _"I have a button, which is
-a child of the dnd zone item... when I tabulate it jumps to the dnd item first, then the next tab
-jumps to the button."_ Isaac closed it asking **"how can it be avoided if we want to support
-keyboard dnd?"** Roving tabindex is the answer to that question; that is the framing.
+Evidence: **issue #460** (not a PR — "Remove tabindex of DndZone items", closed). Opened by
+**@iyj6707**, who wanted item tabindex gone so Tab would reach the next text box. **@gyurielf**
+is a *commenter*, and it is his reframing that matches our case: _"I have a button, which is a
+child of the dnd zone item... when I tabulate it jumps to the dnd item first, then the next tab
+jumps to the button."_ Attribute the quote to him, not to the issue.
+
+Two things from the thread that shape the pitch:
+
+1. **Isaac stated the constraint any answer must satisfy**: _"The draggable item itself has to be
+   tabbable for accessibility (to allow keyboard based drag and drop)."_ He also offered
+   `zoneTabIndex=-1`, which did not solve it. Roving tabindex satisfies the constraint head-on —
+   every item stays tabbable, there is just one tab stop per board instead of N.
+2. **His question is the last comment on the thread.** _"how can it be avoided if we want to
+   support keyboard dnd?"_ Nobody answered; the issue went quiet and was closed. We are not
+   reopening a settled debate, we are answering an open question with working code.
 
 **Must be opt-in** (`navigationMode: 'roving'` or similar) — today a 5-item list has 5 tab stops
 and this makes it 1. Our `zoneItemTabIndex` composition fix already pre-empts the "silently
@@ -160,6 +171,30 @@ as standalone fixes, they will not reproduce on stock upstream:
 Weakest of the set. Upstream binds `ArrowRight`→`ArrowDown` and `ArrowLeft`→`ArrowUp` so
 horizontal lists work; repurposing ←/→ silently breaks every horizontal-list consumer, and no
 issue asks for it. Needs an `orientation` option, or it rides along with 3/4's opt-in.
+
+## Not on the ledger — undecided
+
+### `prefers-reduced-motion` (branch `feat/reduced-motion`)
+
+Two commits that never landed on `planafoot` (`c737260`, `1241f1b`): a `shouldReduceMotion()`
+helper reading `matchMedia("(prefers-reduced-motion: reduce)")` at call time, and a change making
+`centreDraggedOnCursor` skip its displacement when that matches. ~100 lines with tests, purely
+additive, no dependency on items 3–5.
+
+**Ethan is not convinced this is motion that accessibility rules require reducing (2026-08-05).**
+Recorded here rather than promoted to an item. The honest assessment on both sides:
+
+-   The motion **is** animated, not a jump — `createDraggedElementFrom` (`src/helpers/styler.js`)
+    places the clone at its original rect, sets a `transition` on `top`/`left`, then moves it to
+    the cursor in a `setTimeout(0)`. So it visibly slides. The branch's own comment argues
+    correctly that zeroing the transition instead would deliver the same travel instantly, which
+    is more apparent motion, not less.
+-   But it fits only **WCAG 2.3.3 Animation from Interactions**, which is **AAA**, and the
+    amplitude is at most half a card. That is not the large-scale or parallax motion the
+    vestibular guidance targets. "The rules require this" would not survive the maintainer;
+    "users of this option may not want the slide" is a preference argument, not an a11y mandate.
+
+If it is ever pitched, pitch it as a preference and expect it to be judged as one.
 
 ## Permanently fork-only — never in an upstream PR
 
