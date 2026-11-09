@@ -1,6 +1,7 @@
 import {dndzone} from "../../src/keyboardAction";
 import {TRIGGERS} from "../../src/constants";
 import {setKeyboardDragTrigger} from "../../src/keyboardDragTrigger";
+import {createFrame} from "./helpers/otherWindow";
 
 describe("keyboardAction at-rest navigation and roving tabindex", () => {
     const actions = [];
@@ -329,6 +330,115 @@ describe("keyboardAction at-rest navigation and roving tabindex", () => {
             const event = key(c0, "Enter");
             expect(considers, "Enter must not drop the grabbed card").to.deep.equal([TRIGGERS.DRAG_STARTED]);
             expect(event.defaultPrevented).to.be.false;
+        });
+    });
+
+    // A zone can live in another document than the one that loaded the library (an iframe or a popup). A board never
+    // spans documents: each document gets its own tab stop, and neither navigation nor a grab crosses into another one.
+    describe("across documents", () => {
+        const frames = [];
+        afterEach(() => frames.splice(0).forEach(frame => frame.remove()));
+
+        function createFrameZone(items, options = {}) {
+            const {frame, doc} = createFrame();
+            frames.push(frame);
+            const zone = doc.createElement("div");
+            items.forEach(() => {
+                const card = doc.createElement("div");
+                card.style.height = "20px";
+                zone.appendChild(card);
+            });
+            doc.body.appendChild(zone);
+            const action = dndzone(zone, {items, ...options});
+            actions.push(action);
+            return {zone, doc, children: Array.from(zone.children)};
+        }
+
+        function keyIn(el, k) {
+            const event = new el.ownerDocument.defaultView.KeyboardEvent("keydown", {key: k, bubbles: true, cancelable: true});
+            el.dispatchEvent(event);
+            return event;
+        }
+
+        it("gives the board in each document a tab stop of its own", () => {
+            createZone([{id: "a1"}, {id: "a2"}], {type: "board"});
+            const framed = createFrameZone([{id: "f1"}, {id: "f2"}], {type: "board"});
+
+            expect(tabIndices()).to.deep.equal([[0, -1]]);
+            expect(framed.children.map(child => child.tabIndex)).to.deep.equal([0, -1]);
+        });
+
+        it("keeps each document's tab stop when navigating in the other", () => {
+            const {children: parentCards} = createZone([{id: "a1"}, {id: "a2"}], {type: "board"});
+            const framed = createFrameZone([{id: "f1"}, {id: "f2"}], {type: "board"});
+
+            parentCards[0].focus();
+            key(parentCards[0], "ArrowDown");
+
+            expect(tabIndices()).to.deep.equal([[-1, 0]]);
+            expect(framed.children.map(child => child.tabIndex)).to.deep.equal([0, -1]);
+        });
+
+        it("does not navigate at rest into a lane in another document", () => {
+            const {children: parentCards} = createZone([{id: "a1"}], {type: "board"});
+            const framed = createFrameZone([{id: "f1"}], {type: "board"});
+
+            parentCards[0].focus();
+            key(parentCards[0], "ArrowRight");
+            key(parentCards[0], "ArrowLeft");
+
+            expect(document.activeElement).to.equal(parentCards[0]);
+            expect(framed.doc.activeElement).not.to.equal(framed.children[0]);
+            expect(framed.children[0].tabIndex).to.equal(0);
+        });
+
+        it("does not move a grabbed card into a lane in another document", () => {
+            const {zone, children: parentCards} = createZone([{id: "a1"}, {id: "a2"}], {type: "board"});
+            const framed = createFrameZone([{id: "f1"}], {type: "board"});
+            const parentTriggers = [];
+            const frameTriggers = [];
+            zone.addEventListener("consider", e => parentTriggers.push(e.detail.info.trigger));
+            framed.zone.addEventListener("consider", e => frameTriggers.push(e.detail.info.trigger));
+
+            parentCards[0].focus();
+            key(parentCards[0], " ");
+            key(parentCards[0], "ArrowRight");
+            key(parentCards[0], "ArrowLeft");
+            window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+
+            expect(parentTriggers).to.deep.equal([TRIGGERS.DRAG_STARTED, TRIGGERS.DRAG_STOPPED]);
+            expect(frameTriggers).to.deep.equal([]);
+        });
+
+        it("leaves the arrow keys of a grab in one document to the cards of another", () => {
+            const {children: parentCards} = createZone([{id: "a1"}, {id: "a2"}], {type: "board"});
+            const framed = createFrameZone([{id: "f1"}, {id: "f2"}], {type: "board"});
+
+            parentCards[0].focus();
+            key(parentCards[0], " ");
+            const event = keyIn(framed.children[0], "ArrowDown");
+
+            expect(event.defaultPrevented).to.equal(false);
+            window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        });
+    });
+
+    describe("nested controls", () => {
+        ["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"].forEach(k => {
+            it(`leaves ${k} at rest to a control nested inside a card`, () => {
+                createLanes([{id: "a1"}, {id: "a2"}, {id: "a3"}], [{id: "b1"}, {id: "b2"}], {type: "board"});
+                const card = zones[0].children[1];
+                const input = document.createElement("input");
+                card.appendChild(input);
+                input.focus();
+                const before = tabIndices();
+
+                const event = key(input, k);
+
+                expect(event.defaultPrevented).to.equal(false);
+                expect(document.activeElement).to.equal(input);
+                expect(tabIndices()).to.deep.equal(before);
+            });
         });
     });
 });

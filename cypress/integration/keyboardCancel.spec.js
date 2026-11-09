@@ -112,14 +112,16 @@ describe("keyboardAction escape-to-cancel", () => {
             zone: zoneA,
             children: [cardA]
         } = createZone([{id: "a"}, {id: "b"}]);
-        const {zone: zoneZ, children: zCards} = createZone([{id: "x"}, {id: "y"}]);
+        const {zone: zoneZ} = createZone([{id: "x"}, {id: "y"}]);
         const recordA = track(zoneA);
         const recordZ = track(zoneZ);
 
         grab(cardA);
+        // Every step is pressed on the grabbed card: only it owns the arrow keys during a grab. This
+        // consumer never re-renders, so the card element stays in zoneA's DOM throughout.
         key(cardA, "ArrowRight");
         key(cardA, "ArrowDown");
-        key(zCards[0], "ArrowLeft");
+        key(cardA, "ArrowLeft");
         key(cardA, "ArrowRight");
 
         expect(recordA.considers.length + recordZ.considers.length, "should have stepped the grab several times").to.be.greaterThan(4);
